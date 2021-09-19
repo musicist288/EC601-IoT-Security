@@ -1,10 +1,11 @@
 ---
-layout: posts
+layout: single
 slug: iot-security
 title:  "Securing the Internet of Things (IoT)"
-author: "Joseph Rossi"
+author: Joseph Rossi
 date:   2021-09-18 20:00:00 -0400
-categories: iot
+excerpt: ""
+show_date: True
 ---
 
 ## The Rise of IoT

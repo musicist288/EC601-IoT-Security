@@ -1,8 +1,29 @@
 ---
 ---
 
+html {
+    font-size: 18px;
+    @media (min-width: 64em) { & { font-size: 20px; } }
+    @media (min-width: 48em) {& { font-size: 20px; } }
+}
+
+h2 { margin-top: 1.5em }
+
+ol.bibliography {margin: 0; padding: 0;}
 .bibliography li {list-style: none;}
-ol.bibliography {margin: 0; padding: 0}
 
 .footnotes ol, .footnotes li, .footnotes p {font-size: 0.85em}
+
+.page__meta-author {
+    .list__item  & {font-size: 0.6em;}
+    font-size: 0.7em;
+
+    font-style: italic;
+    opacity: 0.8;
+}
+
+.page__meta {
+    margin: 0;
+}
+
 
