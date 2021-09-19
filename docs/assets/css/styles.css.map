@@ -1,0 +1,12 @@
+{
+	"version": 3,
+	"file": "styles.css",
+	"sources": [
+		"styles.scss"
+	],
+	"sourcesContent": [
+		".bibliography li {list-style: none;}\nol.bibliography {margin: 0; padding: 0}\n\n"
+	],
+	"names": [],
+	"mappings": "AAAA,AAAA,aAAa,CAAC,EAAE,CAAC,EAAC,UAAU,EAAE,IAAI,GAAG;;AACrC,AAAA,EAAE,AAAA,aAAa,CAAC,EAAC,MAAM,EAAE,CAAC,EAAE,OAAO,EAAE,CAAC,GAAE"
+}
