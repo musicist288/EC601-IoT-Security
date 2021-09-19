@@ -1,1 +1,3 @@
-This folder contains a statically generated site using jeykll as it uses third-party gems that github won't install or run.
+Repostory for assignments in EC601. Write-ups will be published using jekyll and can be viewed here:
+TODO - link
+

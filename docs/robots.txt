@@ -1,1 +1,1 @@
-Sitemap: https://musicist288.github.io/sitemap.xml
+Sitemap: https://musicist288.github.io/EC601-IoT-Security/sitemap.xml
