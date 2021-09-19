@@ -2,4 +2,6 @@
 
 ol.bibliography { margin: 0; padding: 0; }
 
+.footnotes ol, .footnotes li, .footnotes p { font-size: 0.85em; }
+
 /*# sourceMappingURL=styles.css.map */
