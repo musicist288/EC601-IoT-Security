@@ -5,8 +5,8 @@
 		"styles.scss"
 	],
 	"sourcesContent": [
-		".bibliography li {list-style: none;}\nol.bibliography {margin: 0; padding: 0}\n\n.footnotes ol, .footnotes li, .footnotes p {font-size: 0.85em}\n\n"
+		"html {\n    font-size: 18px;\n    @media (min-width: 64em) { & { font-size: 20px; } }\n    @media (min-width: 48em) {& { font-size: 20px; } }\n}\n\nh2 { margin-top: 1.5em }\n\nol.bibliography {margin: 0; padding: 0;}\n.bibliography li {list-style: none;}\n\n.footnotes ol, .footnotes li, .footnotes p {font-size: 0.85em}\n\n.page__meta-author {\n    .list__item  & {font-size: 0.6em;}\n    font-size: 0.7em;\n\n    font-style: italic;\n    opacity: 0.8;\n}\n\n.page__meta {\n    margin: 0;\n}\n\n\n"
 	],
 	"names": [],
-	"mappings": "AAAA,AAAA,aAAa,CAAC,EAAE,CAAC,EAAC,UAAU,EAAE,IAAI,GAAG;;AACrC,AAAA,EAAE,AAAA,aAAa,CAAC,EAAC,MAAM,EAAE,CAAC,EAAE,OAAO,EAAE,CAAC,GAAE;;AAExC,AAAA,UAAU,CAAC,EAAE,EAAE,UAAU,CAAC,EAAE,EAAE,UAAU,CAAC,CAAC,CAAC,EAAC,SAAS,EAAE,MAAM,GAAE"
+	"mappings": "AAAA,AAAA,IAAI,CAAC,EACD,SAAS,EAAE,IAAI,GAGlB;;AAFG,MAAM,kBAAqB,GAF/B,AAE+B,IAF3B,CAE6B,EAAE,SAAS,EAAE,IAAI,GAAI,EAAD;;AACjD,MAAM,kBAAoB,GAH9B,AAG8B,IAH1B,CAG4B,EAAE,SAAS,EAAE,IAAI,GAAI,EAAD;;AAGpD,AAAA,EAAE,CAAC,EAAE,UAAU,EAAE,KAAM,GAAE;;AAEzB,AAAA,EAAE,AAAA,aAAa,CAAC,EAAC,MAAM,EAAE,CAAC,EAAE,OAAO,EAAE,CAAC,GAAG;;AACzC,AAAA,aAAa,CAAC,EAAE,CAAC,EAAC,UAAU,EAAE,IAAI,GAAG;;AAErC,AAAA,UAAU,CAAC,EAAE,EAAE,UAAU,CAAC,EAAE,EAAE,UAAU,CAAC,CAAC,CAAC,EAAC,SAAS,EAAE,MAAM,GAAE;;AAE/D,AAAA,kBAAkB,CAAC,EAEf,SAAS,EAAE,KAAK,EAEhB,UAAU,EAAE,MAAM,EAClB,OAAO,EAAE,GAAG,GACf;;AALG,AAAA,WAAW,CADf,kBAAkB,CACC,EAAC,SAAS,EAAE,KAAK,GAAG;;AAOvC,AAAA,WAAW,CAAC,EACR,MAAM,EAAE,CAAC,GACZ"
 }
