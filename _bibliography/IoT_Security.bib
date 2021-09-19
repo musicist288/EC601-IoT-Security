@@ -109,6 +109,85 @@
   year   = {2021},
 }
 
+@InProceedings{HeinzeDennis2020,
+  author    = {Heinze, Dennis and Classen, Jiska and Rohrbach, Felix},
+  title     = {MagicPairing: Apple's Take on Securing Bluetooth Peripherals},
+  year      = {2020},
+  abstract  = {Device pairing in large Internet of Things (IoT) deployments is a challenge
+for device manufacturers and users. Bluetooth offers a comparably smooth trust
+on first use pairing experience. Bluetooth, though, is well-known for security
+flaws in the pairing process. In this paper, we analyze how Apple improves the
+security of Bluetooth pairing while still maintaining its usability and
+specification compliance. The proprietary protocol that resides on top of
+Bluetooth is called MagicPairing. It enables the user to pair a device once
+with Apple's ecosystem and then seamlessly use it with all their other Apple
+devices. We analyze both, the security properties provided by this protocol, as
+well as its implementations. In general, MagicPairing could be adapted by other
+IoT vendors to improve Bluetooth security. Even though the overall protocol is
+well-designed, we identified multiple vulnerabilities within Apple's
+implementations with over-the-air and in-process fuzzing.},
+  copyright = {http://arxiv.org/licenses/nonexclusive-distrib/1.0},
+  language  = {eng},
+}
+
+@Electronic{bluesec1.0,
+  author = {Thomas Muller},
+  month  = jul,
+  title  = {Bluetooth Security Architecture},
+  url    = {http://www.afn.org/~afn48922/downs/wireless/1c11600.pdf},
+  year   = {1999},
+}
+@inproceedings{MantzDennis2019I-BB,
+abstract = {Bluetooth is one of the most established technologies for short range digital
+wireless data transmission. With the advent of wearables and the Internet of
+Things (IoT), Bluetooth has again gained importance, which makes security
+research and protocol optimizations imperative. Surprisingly, there is a lack
+of openly available tools and experimental platforms to scrutinize Bluetooth.
+In particular, system aspects and close to hardware protocol layers are mostly
+uncovered.
+We reverse engineer multiple Broadcom Bluetooth chipsets that are widespread
+in off-the-shelf devices. Thus, we offer deep insights into the internal
+architecture of a popular commercial family of Bluetooth controllers used in
+smartphones, wearables, and IoT platforms. Reverse engineered functions can
+then be altered with our InternalBlue Python framework---outperforming
+evaluation kits, which are limited to documented and vendor-defined functions.
+The modified Bluetooth stack remains fully functional and high-performance.
+Hence, it provides a portable low-cost research platform.
+InternalBlue is a versatile framework and we demonstrate its abilities by
+implementing tests and demos for known Bluetooth vulnerabilities. Moreover, we
+discover a novel critical security issue affecting a large selection of
+Broadcom chipsets that allows executing code within the attacked Bluetooth
+firmware. We further show how to use our framework to fix bugs in chipsets out
+of vendor support and how to add new security features to Bluetooth firmware.},
+year = {2019},
+title = {InternalBlue - Bluetooth Binary Patching and Experimentation Framework},
+copyright = {http://arxiv.org/licenses/nonexclusive-distrib/1.0},
+language = {eng},
+author = {Mantz, Dennis and Classen, Jiska and Schulz, Matthias and Hollick, Matthias},
+}
+@inproceedings{ClassenJiska2019IJDB,
+abstract = {Bluetooth is among the dominant standards for wireless short-range
+communication with multi-billion Bluetooth devices shipped each year. Basic
+Bluetooth analysis inside consumer hardware such as smartphones can be
+accomplished observing the Host Controller Interface (HCI) between the
+operating system's driver and the Bluetooth chip. However, the HCI does not
+provide insights to tasks running inside a Bluetooth chip or Link Layer (LL)
+packets exchanged over the air. As of today, consumer hardware internal
+behavior can only be observed with external, and often expensive tools, that
+need to be present during initial device pairing. In this paper, we leverage
+standard smartphones for on-device Bluetooth analysis and reverse engineer a
+diagnostic protocol that resides inside Broadcom chips. Diagnostic features
+include sniffing lower layers such as LL for Classic Bluetooth and Bluetooth
+Low Energy (BLE), transmission and reception statistics, test mode, and memory
+peek and poke.},
+year = {2019},
+title = {Inside Job: Diagnosing Bluetooth Lower Layers Using Off-the-Shelf Devices},
+copyright = {http://arxiv.org/licenses/nonexclusive-distrib/1.0},
+language = {eng},
+author = {Classen, Jiska and Hollick, Matthias},
+keywords = {Computer Science - Networking and Internet Architecture},
+}
+
 @Comment{jabref-meta: databaseType:bibtex;}
 
 @Comment{jabref-meta: grouping:
