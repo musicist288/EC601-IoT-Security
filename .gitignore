@@ -330,3 +330,8 @@ Temporary Items
 # End of https://www.toptal.com/developers/gitignore/api/latex,macos
 *.bak
 *.bak.sav
+
+.sass-cache
+.jekyll-cache
+.jekyll-metadata
+vendor
