@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "project-2"
+version = "0.1.0"
+description = ""
+authors = ["Rossi, Joe <josephr@bu.edu>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+google-cloud-language = "^2.2.2"
+python-dotenv = "^0.19.0"
+requests = "^2.26.0"
+TwitterAPI = "^2.7.5"
+
+[tool.poetry.dev-dependencies]
+pylint = "^2.11.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
