@@ -1,8 +1,11 @@
-This directory contains experiments and code developed for Project 2 for EC601.
+This directory contains experiments developed for Project 2 for EC601.
 
 > All the directories are unimaginatively named while figuring out what to do
 > with the APIs. They will likely be renamed once I have a better idea of what
 > to build.
+
+> If you're looking for the write-up of the interactions with Twitter's API,
+> see [the scripts README](scripts/README.md).
 
 ## Requirements
 
