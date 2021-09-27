@@ -6,13 +6,17 @@
 
 import os
 from datetime import datetime, timedelta
-from typing import List
+
+import dateparser
 from dotenv import load_dotenv
 from TwitterAPI import TwitterAPI, TwitterRequestError
 
 load_dotenv()
 TWITTER_CONSUMER_KEY = os.getenv("TWITTER_CONSUMER_KEY")
 TWITTER_CONSUMER_SECRET = os.getenv("TWITTER_CONSUMER_SECRET")
+TWITTER_ACCESS_KEY = os.getenv("TWITTER_ACCESS_KEY")
+TWITTER_ACCESS_SECRET = os.getenv("TWITTER_ACCESS_SECRET")
+COUNT_GRANULARITIES = ("minute", "hour", "day")
 
 RAGE_LIMIT_HEADERS = {
     "ceiling": "x-rate-limit-limit",
@@ -20,11 +24,25 @@ RAGE_LIMIT_HEADERS = {
     "time_till_reset": "x-rate-limit-reset"
 }
 
-API = TwitterAPI(TWITTER_CONSUMER_KEY,
-                 TWITTER_CONSUMER_SECRET,
-                 auth_type="oAuth2",
-                 api_version="2")
+V2_API = TwitterAPI(TWITTER_CONSUMER_KEY,
+                    TWITTER_CONSUMER_SECRET,
+                    auth_type="oAuth2",
+                    api_version="2")
 
+# Not all the old APIs have a V2 equivalent. (yet?)
+# This API is used for retrieving the home_timeline
+# for a user.
+V11_API = TwitterAPI(TWITTER_CONSUMER_KEY,
+                     TWITTER_CONSUMER_SECRET,
+                     TWITTER_ACCESS_KEY,
+                     TWITTER_ACCESS_SECRET)
+class TweetCount:
+
+    def __init__(self, query, **kwargs):
+        self.query = query
+        self.start_time = dateparser.parse(kwargs.get("start"))
+        self.end_time = dateparser.parse(kwargs.get("end"))
+        self.count = kwargs["tweet_count"]
 
 class TwitterUser: #pylint: disable=too-few-public-methods
     """
@@ -111,8 +129,9 @@ def search(query, start_date=None, end_date=None, max_results=10):
     """
         Test that the twitter API is reachable from the configured credentials.
     """
-    if max_results > 20:
-        raise ValueError("max_results hard capped to 10 so we don't hit the "
+    MAX_LIMIT = 20
+    if max_results > MAX_LIMIT:
+        raise ValueError(f"max_results hard capped to {MAX_LIMIT} so we don't hit the "
                          "search limit for the month.")
 
     payload = {
@@ -124,7 +143,7 @@ def search(query, start_date=None, end_date=None, max_results=10):
     }
 
     _add_payload_dates(payload, start_date, end_date)
-    response = API.request("tweets/search/recent", payload)
+    response = V2_API.request("tweets/search/recent", payload)
 
     # TODO Report/warn about rate-limiting
     if response.status_code != 200:
@@ -148,14 +167,64 @@ def search(query, start_date=None, end_date=None, max_results=10):
     return tweets
 
 
+def counts(query, granularity="hour", start_time=None, end_time=None) -> list[TweetCount]:
+    if granularity not in COUNT_GRANULARITIES:
+        raise ValueError(f"Invalid granularity. Must be one of: {', '.join(COUNT_GRANULARITIES)}")
+
+    payload = {
+        "query": query,
+        "granularity": granularity
+    }
+
+    _add_payload_dates(payload, start_time, end_time)
+    response = V2_API.request("tweets/counts/recent", payload)
+
+    # TODO Report/warn about rate-limiting
+    if response.status_code != 200:
+        raise TwitterRequestError(status_code=response.status_code,
+                                  msg=response.text)
+
+    payload = response.json()
+    return [TweetCount(query, **count) for count in payload['data']]
+
+
+def home_timeline(count=5):
+    params = { "count": count }
+
+    resp = V11_API.request("statuses/home_timeline", params)
+    if resp.status_code != 200:
+        raise TwitterRequestError(resp.text)
+
+    data = resp.json()
+    tweets = []
+    for entry in data:
+        tweet = Tweet(
+            author_id=entry['user']['id_str'],
+            tweet_id= entry['id_str'],
+            created_at=entry['created_at'],
+            text=entry['text']
+        )
+        user = TwitterUser(
+            author_id=entry['user']['id_str'],
+            name=entry['user']['name'],
+            username=entry['user']['screen_name'],
+            url=entry['user']['url'],
+            description=entry['user']['description']
+        )
+        tweet.author = user
+        tweets.append(tweet)
+
+    return tweets
+
+
 def get_user_by_id(user_id):
     """
         Get a Twitter profile data by the user id.
     """
-    return API.request(f"users/{user_id}")
+    return V2_API.request(f"users/{user_id}")
 
 
-def get_users_by_usernames(*usernames: List[str]):
+def get_users_by_usernames(*usernames: list[str]):
     """
         Get information for a list of usernames.
     """
@@ -165,4 +234,4 @@ def get_users_by_usernames(*usernames: List[str]):
         "user.fields": "location,url,entities"
     }
 
-    return API.request("users/by", query)
+    return V2_API.request("users/by", query)

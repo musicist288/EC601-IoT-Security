@@ -11,7 +11,7 @@ This directory contains experiments developed for Project 2 for EC601.
 
 * Python 3.7+
 * This repo uses [Poetry](https://python-poetry.org/) for dependency
-  management. If you are not running Poetry, you can use 
+  management. If you are not running Poetry, you can use
   `pip install -r requirements.txt` to install dependencies with
   pip.
 * Access to Twitter's Developer APIs
@@ -19,17 +19,20 @@ This directory contains experiments developed for Project 2 for EC601.
 
 The following environment variables need to be set:
 
-- `TWITTER_CONSUMER_KEY` - The API key used for OAuth2 access to Twitter APIs
-- `TWITTER_CONSUMER_SECRET` - The API secret key used for authorization
-- `GOOGLE_APPLICATION_CREDENTIALS` - Path to the file containing your Google Cloud 
-                                     credentials with NLP access.
+| Environment Variable Name        | Description                                                                       |
+|----------------------------------|-----------------------------------------------------------------------------------|
+| `TWITTER_CONSUMER_KEY`           | The API key used for OAuth2 access to Twitter APIs                                |
+| `TWITTER_CONSUMER_SECRET`        | The API secret key used for authorization                                         |
+| `TWITTER_ACCESS_KEY`             | An access token generated to access your personal account's data.                 |
+| `TWITTER_ACCESS_SECRET`          | The corresponding access secret generated to access your personal account's data. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to the file containing your Google Cloud credentials with NLP access.        |
 
 For convenience, you may put these variables in a `.env` file your working directory
 and the scripts will pick the environment variables up that way.
 
 ## Setup
 
-1. To get started, install the dependencies: `poetry install` 
+1. To get started, install the dependencies: `poetry install`
 1. You can then drop into a shell to run scripts in any of the playground
    directories: `poetry shell`
 
@@ -39,6 +42,6 @@ depend on `import ec601_proj2` succeeding. Your options are to run all scripts
 from the root of this repo, or you can set your PYTHONPATH environment variable
 to the root to the repo.
 
-See the README file in the `scripts/` folder for a descriptions of the different
+See the README file in the `scripts/` folder for a description of the different
 scripts and their results.
 
