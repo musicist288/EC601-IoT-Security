@@ -3,7 +3,9 @@ NLP and Twitter Development APIs. The scripts described below were developed
 in an attempt to get comfortable with the Twitter API to help spark ideas for
 a project, as I'm not a frequent Twitter user.
 
-## tweet_search.py
+## Scripts
+
+### tweet_search.py
 
 **Usage:** `tweet_search.py [-h] [--since SINCE] [--until UNTIL] [--sentiments] query`
 
@@ -30,7 +32,7 @@ documentation](https://cloud.google.com/natural-language/docs/basics#interpretin
 to categorize the sentiments. The categorization results are pretty crude
 and not always accurate, especially in the case of sarcastic tweets.
 
-### Examples and Results
+#### Examples and Results
 
 **Query:** #Boston
 
@@ -54,7 +56,7 @@ query with just those specifiers, I received a few irrelevant tweets that were
 advertising apartments that are near restaurants or festivals in the area, so I
 added the negative terms to filter out those results.
 
-## tweet_counts.py
+### tweet_counts.py
 
 **Usage:** `tweet_counts.py [-h] [--since SINCE] [--until UNTIL] [--granularity {minute,hour,day}] query`
 
@@ -70,9 +72,9 @@ query feature is only available to users with premium or enterprise subscription
 to the APIs. The `query` parameter can be anything to do with stuff.
 
 
-## tweet_home_timeline.py
+### tweet_home_timeline.py
 
-**Usage:** ` tweet_home_timeline.py [-h] [--count COUNT]`
+**Usage:** `tweet_home_timeline.py [-h] [--count COUNT] [--classify]`
 
 **Description:**
 
@@ -80,3 +82,20 @@ If you generate an access token and secret for your account, you can use this sc
 query your home timeline for recent tweets from people you follow. The newer V2 API doesn't
 seem to support this functionality (or at least it's missing from the documentation), so this
 script relies on the 1.1 version of the API.
+
+Passing `--classify` will pass the tweet's text to google's NLP api in an attempt to classify 
+it.
+
+### nlp_cli.py
+
+**Usage:** `nlp_cli.py [-h] {sentiment,entities,entity-sentiment,classify}`
+
+**Description:**
+
+This utility exposes four of the lanauge services provided through Google's NLP
+API via a CLI utility. All of the commands take a single text string argument which
+gets passed as an english-language plain text string. The results from the API are
+then passed to the console.
+
+According to Google's documentation, the `classify` service requires at least 20 words
+to classify a document, however, it does seem to work with fewer words sometimes.
