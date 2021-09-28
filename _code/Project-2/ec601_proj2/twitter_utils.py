@@ -188,7 +188,7 @@ def counts(query, granularity="hour", start_time=None, end_time=None) -> list[Tw
     return [TweetCount(query, **count) for count in payload['data']]
 
 
-def home_timeline(count=5):
+def home_timeline(count=5) -> list[Tweet]:
     params = { "count": count }
 
     resp = V11_API.request("statuses/home_timeline", params)
