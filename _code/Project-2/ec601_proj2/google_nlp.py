@@ -3,9 +3,56 @@
     performed in this repository.
 """
 import enum
+from google.api_core.exceptions import InvalidArgument
 from google.cloud import language_v1
+from dotenv import load_dotenv
+from functools import wraps
 
-CLIENT = language_v1.LanguageServiceClient()
+load_dotenv()
+
+def format_request(text, language="en"):
+    """
+        Helper function to format a request object to make a
+        Google NLP query.
+    """
+    document = language_v1.Document(content=text,
+                                    type_=language_v1.Document.Type.PLAIN_TEXT,
+                                    language=language)
+    return dict(document=document)
+
+
+def text_api(func):
+    @wraps(func)
+    def inner(self, text, *args, **kwargs):
+        return func(self, format_request(text), *args, **kwargs)
+    return inner
+
+
+def textapis(apis_to_wrap):
+    """
+        I'm restricting my use cases to plain-text english documents, this class
+        decorator is used to wrap all the client APIs so I can pass in a string of
+        text to call them instead of having to prepare the reqest for all of them.
+    """
+    def wrapper(cls):
+        for func in apis_to_wrap:
+            wrapped = text_api(getattr(language_v1.LanguageServiceClient, func))
+            setattr(cls, func, wrapped)
+        return cls
+    return wrapper
+
+
+@textapis([
+    "analyze_sentiment",
+    "analyze_entity_sentiment",
+    "analyze_entities",
+    "classify_text"
+])
+class EnglishTextLanguageClientService(language_v1.LanguageServiceClient):
+    pass
+
+
+LanguageClient = EnglishTextLanguageClientService()
 
 class SentimentCategory(enum.IntEnum):
     """
@@ -42,11 +89,11 @@ def categorize_sentiment(sentiment):
 
     return SentimentCategory.NEUTRAL
 
+def choose_category(categories, heuristic="max"):
+    if not categories:
+        return None
 
-def get_sentiment_analysis(text: str):
-    """
-        Perform a sentiment analysis on a string of text
-    """
-    document = language_v1.Document(content=text, type_=language_v1.Document.Type.PLAIN_TEXT)
-    sentiment = CLIENT.analyze_sentiment(request={'document': document}).document_sentiment
-    return sentiment
+    confidences = [cat.confidence for cat in categories]
+    max_conf = max(confidences)
+    index = confidences.index(max_conf)
+    return categories[index]

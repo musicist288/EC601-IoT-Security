@@ -5,6 +5,7 @@
 from argparse import ArgumentParser
 import dateparser
 from ec601_proj2 import twitter_utils, google_nlp
+from ec601_proj2.google_nlp import LanguageClient
 
 def cli_main():
     """
@@ -37,7 +38,7 @@ def cli_main():
         for tweet in tweets:
             print(tweet)
             if args.sentiments:
-                analysis = google_nlp.get_sentiment_analysis(tweet.text)
+                analysis = LanguageClient.analyze_sentiment(tweet.text)
                 sentiment = google_nlp.categorize_sentiment(analysis)
                 print(f"Sentiment: {sentiment.name}")
             print("=" * 100)
