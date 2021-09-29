@@ -5,6 +5,7 @@
 """
 
 import os
+import typing
 from datetime import datetime, timedelta
 
 import dateparser
@@ -55,6 +56,16 @@ class TwitterUser: #pylint: disable=too-few-public-methods
         self.username = kwargs.get("username")
         self.url = kwargs.get("url")
         self.description = kwargs.get("description")
+        self.verified = kwargs.get("verified")
+
+
+    def __hash__(self):
+        return hash((self.author_id, self.username))
+
+
+    def __eq__(self, other):
+        return self.author_id == other.author_id
+
 
 
 class Tweet: #pylint: disable=too-few-public-methods
@@ -193,7 +204,7 @@ def home_timeline(count=5) -> list[Tweet]:
 
     resp = V11_API.request("statuses/home_timeline", params)
     if resp.status_code != 200:
-        raise TwitterRequestError(resp.text)
+        raise TwitterRequestError(status_code=resp.status_code, msg=resp.text)
 
     data = resp.json()
     tweets = []
@@ -224,14 +235,73 @@ def get_user_by_id(user_id):
     return V2_API.request(f"users/{user_id}")
 
 
-def get_users_by_usernames(*usernames: list[str]):
+def _check_response(response):
+    if response.status_code != 200:
+        raise TwitterRequestError(status_code=response.status_code,
+                                  msg=response.text)
+
+    return response
+
+
+def _user_list_result(endpoint):
+    params = {
+        "user.fields": "verified,description"
+    }
+
+    response = _check_response(V2_API.request(endpoint, params=params))
+
+    json = response.json()
+    count = json['meta']['result_count']
+
+    if count == 0:
+        return []
+
+    data = json['data']
+    return [TwitterUser(**user) for user in json['data']]
+
+
+def _tweets_list_result(endpoint, limit):
+    params = {
+        "max_results": limit
+    }
+    response = _check_response(V2_API.request(endpoint, params=params))
+    json = response.json()
+    return [Tweet(**tweet) for tweet in json['data']]
+
+
+def get_user_by_username(username) -> TwitterUser:
     """
         Get information for a list of usernames.
     """
 
-    query = {
-        "usernames": ",".join(usernames),
-        "user.fields": "location,url,entities"
-    }
+    response = _check_response(V2_API.request(f"users/by/username/:{username}"))
+    json = response.json()
+    if not json['data']:
+        return None
 
-    return V2_API.request("users/by", query)
+    return TwitterUser(**json['data'])
+
+
+def get_following(user: TwitterUser):
+    return _user_list_result(f"users/:{user.author_id}/following")
+
+
+def get_followers(user: TwitterUser):
+    return _user_list_result(f"users/:{user.author_ids}/followers")
+
+
+def get_blocking(user: TwitterUser):
+    return _user_list_result(f"users/:{user.author_id}/blocking")
+
+
+def get_muting(user: TwitterUser):
+    return _user_list_result(f"users/:{user.author_id}/muting")
+
+
+def get_user_tweets(user: TwitterUser, limit=10):
+    tweets = _tweets_list_result(f"users/:{user.author_id}/tweets", limit)
+
+    for tweet in tweets:
+        tweet.author = user
+
+    return tweets
