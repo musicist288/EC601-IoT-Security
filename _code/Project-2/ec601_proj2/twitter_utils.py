@@ -110,6 +110,19 @@ Text: {self.text}
     def __repr__(self):
         return f"<{self.__class__.__name__}: id={self.tweet_id}>"
 
+    def to_dict(self):
+        fields = (
+            ("tweet_id", "id"),
+            ("author_id", "author_id"),
+            ("created_at", "created_at"),
+            ("text", "text")
+        )
+        return {field[1]: getattr(self, field[0]) for field in fields}
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(**data)
+
 
 def _add_payload_dates(payload, start_date, end_date):
     """

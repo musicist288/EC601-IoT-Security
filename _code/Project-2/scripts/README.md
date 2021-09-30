@@ -83,7 +83,7 @@ query your home timeline for recent tweets from people you follow. The newer V2 
 seem to support this functionality (or at least it's missing from the documentation), so this
 script relies on the 1.1 version of the API.
 
-Passing `--classify` will pass the tweet's text to google's NLP api in an attempt to classify 
+Passing `--classify` will pass the tweet's text to Google's NLP API in an attempt to classify
 it.
 
 ### nlp_cli.py
@@ -92,10 +92,31 @@ it.
 
 **Description:**
 
-This utility exposes four of the lanauge services provided through Google's NLP
-API via a CLI utility. All of the commands take a single text string argument which
-gets passed as an english-language plain text string. The results from the API are
+This utility exposes four of the language services provided through Google's NLP
+API via a CLI utility. All the commands take a single text string argument
+passed as an english language plain text string. The results from the API are
 then passed to the console.
 
 According to Google's documentation, the `classify` service requires at least 20 words
 to classify a document, however, it does seem to work with fewer words sometimes.
+
+### classify_user.py
+
+**Usage:** `classify_twitter_user.py [-h] [--num-tweets NUM_TWEETS] username`
+
+**Description:**
+
+This script will take the given username and try to create a list of topics
+that they discuss from a collection of tweets.
+
+**Results:**
+
+It worked pretty well for a few account that I know have a lot of content on
+certain topics. For example, it correctly classified
+`"/Computers & Electronics/Computer Security/Hacking & Cracking` for an account
+I follow that picks up on security. It also picked up on
+`/Computers & Electronics/Software/Operating Systems` for a well-respected programmer's
+Twitter account.
+
+This experiment is the basis for the utility I plan to build for Project 2.  See
+the [user stories document](../UserStories.md) for more information.
