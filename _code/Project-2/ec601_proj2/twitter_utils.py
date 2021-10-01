@@ -5,12 +5,14 @@
 """
 
 import os
-import typing
+from typing import Tuple
 from datetime import datetime, timedelta
+from dataclasses import dataclass
 
 import dateparser
 from dotenv import load_dotenv
 from TwitterAPI import TwitterAPI, TwitterRequestError
+from requests.models import Response
 
 load_dotenv()
 TWITTER_CONSUMER_KEY = os.getenv("TWITTER_CONSUMER_KEY")
@@ -27,7 +29,8 @@ RAGE_LIMIT_HEADERS = {
 
 V2_API = TwitterAPI(TWITTER_CONSUMER_KEY,
                     TWITTER_CONSUMER_SECRET,
-                    auth_type="oAuth2",
+                    TWITTER_ACCESS_KEY,
+                    TWITTER_ACCESS_SECRET,
                     api_version="2")
 
 # Not all the old APIs have a V2 equivalent. (yet?)
@@ -37,6 +40,7 @@ V11_API = TwitterAPI(TWITTER_CONSUMER_KEY,
                      TWITTER_CONSUMER_SECRET,
                      TWITTER_ACCESS_KEY,
                      TWITTER_ACCESS_SECRET)
+
 class TweetCount:
 
     def __init__(self, query, **kwargs):
@@ -51,7 +55,7 @@ class TwitterUser: #pylint: disable=too-few-public-methods
     """
 
     def __init__(self, **kwargs):
-        self.author_id = kwargs.get("id")
+        self.id = kwargs.get("id")
         self.name = kwargs.get("name")
         self.username = kwargs.get("username")
         self.url = kwargs.get("url")
@@ -60,12 +64,20 @@ class TwitterUser: #pylint: disable=too-few-public-methods
 
 
     def __hash__(self):
-        return hash((self.author_id, self.username))
+        return hash((self.id, self.username))
 
 
     def __eq__(self, other):
-        return self.author_id == other.author_id
+        return self.id == other.id
 
+
+    def to_dict(self):
+        fields = 'id', 'name', 'username', 'url', 'description', 'verified'
+        return {f: getattr(self, f) for f in fields}
+
+    @classmethod
+    def from_dict(cls, dict):
+        return cls(**dict)
 
 
 class Tweet: #pylint: disable=too-few-public-methods
@@ -74,7 +86,7 @@ class Tweet: #pylint: disable=too-few-public-methods
     """
 
     def __init__(self, **kwargs):
-        self.tweet_id = kwargs.get("id")
+        self.id = kwargs.get("id")
         self.author_id = kwargs.get("author_id")
         self.created_at = kwargs.get("created_at")
         self.text = kwargs.get("text", "")
@@ -108,11 +120,11 @@ Text: {self.text}
 """
 
     def __repr__(self):
-        return f"<{self.__class__.__name__}: id={self.tweet_id}>"
+        return f"<{self.__class__.__name__}: id={self.id}>"
 
     def to_dict(self):
         fields = (
-            ("tweet_id", "id"),
+            ("id", "id"),
             ("author_id", "author_id"),
             ("created_at", "created_at"),
             ("text", "text")
@@ -122,6 +134,13 @@ Text: {self.text}
     @classmethod
     def from_dict(cls, data):
         return cls(**data)
+
+
+@dataclass
+class ResponseMetadata:
+    next_token: str
+    previous_token: str
+    result_count: int
 
 
 def _add_payload_dates(payload, start_date, end_date):
@@ -181,7 +200,7 @@ def search(query, start_date=None, end_date=None, max_results=10):
     if count > 0:
         data = payload['data']
         users = [TwitterUser(**user) for user in payload['includes']['users']]
-        users_by_author_id = {user.author_id: user for user in users}
+        users_by_author_id = {user.id: user for user in users}
 
         for tweet_json in data:
             tweet = Tweet(**tweet_json)
@@ -224,7 +243,7 @@ def home_timeline(count=5) -> list[Tweet]:
     for entry in data:
         tweet = Tweet(
             author_id=entry['user']['id_str'],
-            tweet_id= entry['id_str'],
+            id=entry['id_str'],
             created_at=entry['created_at'],
             text=entry['text']
         )
@@ -256,7 +275,7 @@ def _check_response(response):
     return response
 
 
-def _user_list_result(endpoint):
+def _user_list_result(endpoint) -> Tuple[ResponseMetadata, list[TwitterUser]]:
     params = {
         "user.fields": "verified,description"
     }
@@ -264,13 +283,15 @@ def _user_list_result(endpoint):
     response = _check_response(V2_API.request(endpoint, params=params))
 
     json = response.json()
-    count = json['meta']['result_count']
+    metadata = ResponseMetadata(**json['meta'])
+    count = metadata.result_count
 
     if count == 0:
         return []
 
     data = json['data']
-    return [TwitterUser(**user) for user in json['data']]
+    meta = ResponseMetadata(**json['metadata'])
+    return metadata, [TwitterUser(**user) for user in json['data']]
 
 
 def _tweets_list_result(endpoint, limit):
@@ -279,6 +300,7 @@ def _tweets_list_result(endpoint, limit):
     }
     response = _check_response(V2_API.request(endpoint, params=params))
     json = response.json()
+    metadata = ResponseMetadata(**json['meta'])
     return [Tweet(**tweet) for tweet in json['data']]
 
 
@@ -295,24 +317,23 @@ def get_user_by_username(username) -> TwitterUser:
     return TwitterUser(**json['data'])
 
 
-def get_following(user: TwitterUser):
-    return _user_list_result(f"users/:{user.author_id}/following")
+def get_following(user: TwitterUser, pagination=None):
+    return _user_list_result(f"users/:{user.id}/following", pagination)
 
 
-def get_followers(user: TwitterUser):
-    return _user_list_result(f"users/:{user.author_ids}/followers")
+def get_followers(user: TwitterUser, pagination=None):
+    return _user_list_result(f"users/:{user.author_ids}/followers", pagination)
 
 
-def get_blocking(user: TwitterUser):
-    return _user_list_result(f"users/:{user.author_id}/blocking")
+def get_blocking(user: TwitterUser, pagination=None):
+    return _user_list_result(f"users/:{user.id}/blocking", pagination)
 
 
 def get_muting(user: TwitterUser):
-    return _user_list_result(f"users/:{user.author_id}/muting")
-
+    return _user_list_result(f"users/:{user.id}/muting", pagination)
 
 def get_user_tweets(user: TwitterUser, limit=10):
-    tweets = _tweets_list_result(f"users/:{user.author_id}/tweets", limit)
+    tweets = _tweets_list_result(f"users/:{user.id}/tweets", limit)
 
     for tweet in tweets:
         tweet.author = user
