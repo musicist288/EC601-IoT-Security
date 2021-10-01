@@ -60,7 +60,7 @@ class DatabaseTests(unittest.TestCase):
             text="This is a text object"
         )
 
-        models.add_tweet(tweet, twitter_user)
+        models.add_tweet(tweet)
 
         model = models.Tweet.get_by_id(tweet.id)
         for attr in ('id', 'created_at', 'text'):
@@ -98,7 +98,7 @@ class DatabaseTests(unittest.TestCase):
         )
 
         models.create_user(twitter_user)
-        tweet_model = models.add_tweet(tweet, twitter_user)
+        tweet_model = models.add_tweet(tweet)
         entity_model = models.Entity.create(name="MYENT", type="ORG")
 
         tweet_ent = models.TweetEntity.create(tweet=tweet_model, entity=entity_model)

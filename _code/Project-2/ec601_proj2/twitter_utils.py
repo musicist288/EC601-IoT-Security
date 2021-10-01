@@ -27,6 +27,8 @@ RAGE_LIMIT_HEADERS = {
     "time_till_reset": "x-rate-limit-reset"
 }
 
+DATE_FORMAT = "%Y-%m-%dT%H:%M:SZ"
+
 V2_API = TwitterAPI(TWITTER_CONSUMER_KEY,
                     TWITTER_CONSUMER_SECRET,
                     TWITTER_ACCESS_KEY,
@@ -136,11 +138,16 @@ Text: {self.text}
         return cls(**data)
 
 
-@dataclass
 class ResponseMetadata:
     next_token: str
     previous_token: str
     result_count: int
+    newest_id: str
+    oldest_id: str
+
+    def __init__(self, *args, **kwargs):
+        for arg, value in kwargs.items():
+            setattr(self, arg, value)
 
 
 def _add_payload_dates(payload, start_date, end_date):
@@ -311,7 +318,7 @@ def get_user_by_username(username) -> TwitterUser:
 
     response = _check_response(V2_API.request(f"users/by/username/:{username}"))
     json = response.json()
-    if not json['data']:
+    if not json.get('data'):
         return None
 
     return TwitterUser(**json['data'])
@@ -329,8 +336,9 @@ def get_blocking(user: TwitterUser, pagination=None):
     return _user_list_result(f"users/:{user.id}/blocking", pagination)
 
 
-def get_muting(user: TwitterUser):
+def get_muting(user: TwitterUser, pagination=None):
     return _user_list_result(f"users/:{user.id}/muting", pagination)
+
 
 def get_user_tweets(user: TwitterUser, limit=10):
     tweets = _tweets_list_result(f"users/:{user.id}/tweets", limit)

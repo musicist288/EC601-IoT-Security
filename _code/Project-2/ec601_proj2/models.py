@@ -1,6 +1,10 @@
 """
     This module containt the model defintions and helper function
     for storing data as it is scraped and classified.
+
+    Note that not all models have a primary key. In thses cases
+    the ORM will generate a primary key field and use it for
+    building the model relations.
 """
 from peewee import *
 
@@ -20,6 +24,7 @@ class User(BaseModel):
     url = CharField()
     description = CharField()
     verified = BooleanField()
+    last_scraped = DateTimeField(null=True)
 
 
 class Tweet(BaseModel):
@@ -30,23 +35,45 @@ class Tweet(BaseModel):
 
 
 class Topic(BaseModel):
+    """
+        Stored list of topic names that come back from
+        Google's NLP classifcations.
+    """
     name = CharField()
 
 
 class UserTopic(BaseModel):
+    """
+        A many-to-many model for cataloging topics
+        that a user discusses.
+    """
     user = ForeignKeyField(User, backref="user_topics")
     topic = ForeignKeyField(Topic, backref="user_topics")
 
+    ## How many tweets this topic came up in.
+    count = FloatField(default=0)
+
+    # User added this explicitly as one of thier topics
+    # even though it's not detected by their tweet history.
+    user_identified = BooleanField(default=False)
+
 
 class Entity(BaseModel):
+    """Store entitiy results from Google"""
     name = CharField(unique=True)
     type = CharField()
 
 
 class TweetEntity(BaseModel):
+    """
+        Many-to-many mappy to group tweets by entities
+        they share in common.
+    """
     tweet = ForeignKeyField(Tweet, backref="tweet_entities")
     entity = ForeignKeyField(Entity, backref="tweet_entities")
 
+
+## Helper functions for working with models
 
 def add_user_topic(user: twitter_utils.TwitterUser, topic: str):
     topic, created = Topic.get_or_none(topic)
@@ -71,8 +98,11 @@ def get_user(author_id):
     return user
 
 
-def add_tweet(tweet: twitter_utils.Tweet, user: twitter_utils.TwitterUser):
-    user_model = User.get_by_id(user.id)
+def add_tweet(tweet: twitter_utils.Tweet):
+    """
+        Add a tweet and user id
+    """
+    user_model = User.get_by_id(tweet.author_id)
     try:
         tweet_model = Tweet.get_by_id(tweet.id)
     except Exception as err:
