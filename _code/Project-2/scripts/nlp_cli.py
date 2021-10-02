@@ -1,3 +1,6 @@
+"""
+    CLI program to experiment with Google's NLP API
+"""
 from argparse import ArgumentParser
 from google.api_core.exceptions import InvalidArgument
 from ec601_proj2.google_nlp import LanguageClient

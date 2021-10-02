@@ -4,6 +4,9 @@
     python package.
 """
 
+#pylint: disable=unused-import,missing-class-docstring,missing-function-docstring
+#pylint: disable=too-few-public-methods
+
 import os
 from typing import Tuple
 from datetime import datetime, timedelta
@@ -78,8 +81,8 @@ class TwitterUser: #pylint: disable=too-few-public-methods
         return {f: getattr(self, f) for f in fields}
 
     @classmethod
-    def from_dict(cls, dict):
-        return cls(**dict)
+    def from_dict(cls, data):
+        return cls(**data)
 
 
 class Tweet: #pylint: disable=too-few-public-methods
@@ -96,7 +99,6 @@ class Tweet: #pylint: disable=too-few-public-methods
 
     def __str__(self):
         return f"""
-Tweet by: {self.author.username}
 Created: {self.created_at}
 Text: {self.text}
 """
@@ -125,7 +127,7 @@ class ResponseMetadata:
     newest_id: str
     oldest_id: str
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         for arg, value in kwargs.items():
             setattr(self, arg, value)
 
@@ -186,12 +188,8 @@ def search(query, start_date=None, end_date=None, max_results=10):
 
     if count > 0:
         data = payload['data']
-        users = [TwitterUser(**user) for user in payload['includes']['users']]
-        users_by_author_id = {user.id: user for user in users}
-
         for tweet_json in data:
             tweet = Tweet(**tweet_json)
-            tweet.author = users_by_author_id[tweet.author_id]
             tweets.append(tweet)
 
     return tweets
@@ -234,14 +232,6 @@ def home_timeline(count=5) -> list[Tweet]:
             created_at=entry['created_at'],
             text=entry['text']
         )
-        user = TwitterUser(
-            author_id=entry['user']['id_str'],
-            name=entry['user']['name'],
-            username=entry['user']['screen_name'],
-            url=entry['user']['url'],
-            description=entry['user']['description']
-        )
-        tweet.author = user
         tweets.append(tweet)
 
     return tweets
@@ -262,7 +252,7 @@ def _check_response(response):
     return response
 
 
-def _user_list_result(endpoint) -> Tuple[ResponseMetadata, list[TwitterUser]]:
+def _user_list_result(endpoint, pagination) -> Tuple[ResponseMetadata, list[TwitterUser]]:
     params = {
         "user.fields": "verified,description"
     }
@@ -277,8 +267,7 @@ def _user_list_result(endpoint) -> Tuple[ResponseMetadata, list[TwitterUser]]:
         return []
 
     data = json['data']
-    meta = ResponseMetadata(**json['metadata'])
-    return metadata, [TwitterUser(**user) for user in json['data']]
+    return metadata, [TwitterUser(**user) for user in data]
 
 
 def _tweets_list_result(endpoint, limit):
@@ -288,7 +277,7 @@ def _tweets_list_result(endpoint, limit):
     response = _check_response(V2_API.request(endpoint, params=params))
     json = response.json()
     metadata = ResponseMetadata(**json['meta'])
-    return [Tweet(**tweet) for tweet in json['data']]
+    return metadata, [Tweet(**tweet) for tweet in json['data']]
 
 
 def get_user_by_username(username) -> TwitterUser:
@@ -320,5 +309,5 @@ def get_muting(user_id: str, pagination=None):
     return _user_list_result(f"users/:{user_id}/muting", pagination)
 
 def get_user_tweets(user_id: str, limit=10):
-    tweets = _tweets_list_result(f"users/:{user_id}/tweets", limit)
+    _, tweets = _tweets_list_result(f"users/:{user_id}/tweets", limit)
     return tweets

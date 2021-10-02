@@ -1,15 +1,18 @@
+"""
+    Defines workers for scraping and analyzing twitter data.
+"""
 from collections import defaultdict
-from playhouse.shortcuts import dict_to_model, model_to_dict
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import os
 import json
-from time import sleep
+import logging
 
 import dateparser
-import redis
 from dotenv import load_dotenv
+from playhouse.shortcuts import dict_to_model, model_to_dict
+import redis
 
 from . import models
 from . import twitter_utils
@@ -17,20 +20,14 @@ from . import google_nlp
 
 load_dotenv()
 
-REDIS_CLIENT = None
 REDIS_SERVER_HOST = os.getenv("REDIS_SERVER_HOST")
 REDIS_SERVER_PORT = int(os.getenv("REDIS_SERVER_PORT"))
 REDIS_SERVER_DB = int(os.getenv("REDIS_SERVER_DB"))
 
 def get_redis_client():
-    global REDIS_CLIENT
-
-    if REDIS_CLIENT is None:
-        REDIS_CLIENT = redis.Redis(REDIS_SERVER_HOST,
-                                  port=REDIS_SERVER_PORT,
-                                  db=REDIS_SERVER_DB)
-
-    return REDIS_CLIENT
+    return redis.Redis(REDIS_SERVER_HOST,
+                       port=REDIS_SERVER_PORT,
+                       db=REDIS_SERVER_DB)
 
 
 class Queues:
@@ -154,10 +151,10 @@ class DatabaseWorker(RedisWorker):
         """
         last_week = datetime.now() - timedelta(days=7)
         query = models.User.select().where(
-            (models.User.last_scraped == None) |
+            (models.User.last_scraped.is_null()) |
             (models.User.last_scraped <= last_week)
         )
-        for user in query:
+        for user in query: #pylint: disable=not-an-iterable
             data =  ScrapeUserTweetsWorker.serialize_request(user)
             self._client.sadd(Queues.SCRAPE_USER_TWEETS_REQUEST, data)
 
@@ -179,8 +176,8 @@ class DatabaseWorker(RedisWorker):
 
 
     def queue_entity_analysis_requests(self):
-        tweets = models.Tweet.select().where(models.Tweet.analyzed == False)
-        for tweet in tweets:
+        tweets = models.Tweet.select().where(models.Tweet.analyzed >> False)
+        for tweet in tweets: #pylint: disable=not-an-iterable
             request = EntityAnalysisWorker.serialize_request(tweet)
             self._client.rpush(Queues.ENTITY_ANALYSIS_REQUEST, request)
 
@@ -223,18 +220,18 @@ class DatabaseWorker(RedisWorker):
 
         ## Grab all the tweets and their entities.
         query = models.Tweet.select().where(
-            (models.Tweet.analyzed == True) &
-            (models.Tweet.classified == False)
+            (models.Tweet.analyzed >> True) &
+            (models.Tweet.classified >> False)
         )
 
         mapping = defaultdict(list)
 
-        for tweet in query:
+        for tweet in query: #pylint: disable=not-an-iterable
             for tweet_entity in tweet.tweet_entities:
                 key = (tweet.user_id, tweet_entity.entity.name)
                 mapping[key].append(tweet)
 
-        for (user_id, entity), tweets in mapping.items():
+        for (user_id, _), tweets in mapping.items():
             request = ClassificationRequest(user_id =user_id, tweets=tweets)
             self._client.rpush(Queues.CLASSIFICATION_REQUESTS,
                                ClassificationWorker.serialize_request(request))
@@ -258,12 +255,12 @@ class ScrapeUserTweetsWorker(RedisWorker):
     RATE_LIMIT_EXPIRES_KEY = "twitter:rate_limit_up"
 
     @classmethod
-    def serialize_request(self, user: models.User) -> str:
+    def serialize_request(cls, user: models.User) -> str:
         return user.id
 
 
     @classmethod
-    def deserialize_result(self, data) -> twitter_utils.Tweet:
+    def deserialize_result(cls, data) -> twitter_utils.Tweet:
         return twitter_utils.Tweet(**json.loads(data))
 
 
@@ -274,10 +271,14 @@ class ScrapeUserTweetsWorker(RedisWorker):
                 ## Can't do anything waiting for the rate limit.
                 return
 
+        ## Query to make sure user exists
         user = models.User.get_by_id(user_id)
+        if not user:
+            logging.debug("Not scraping user. Does not exist: %s", user_id)
+
         try:
             # TODO: Limit by last scraped date range.
-            tweets = twitter_utils.get_user_tweets(user_id)
+            tweets = twitter_utils.get_user_tweets(user.id)
             for tweet in tweets:
                 self._client.rpush(
                     Queues.SCRAPE_USER_TWEETS_RESULTS,
@@ -341,12 +342,12 @@ class ClassificationWorker(RedisWorker):
     """
 
     @classmethod
-    def serialize_request(self, request: ClassificationRequest):
+    def serialize_request(cls, request: ClassificationRequest):
         return request.to_json()
 
 
     @classmethod
-    def deserialize_result(self, data: str):
+    def deserialize_result(cls, data: str):
         return ClassificationResult.from_json(data)
 
 

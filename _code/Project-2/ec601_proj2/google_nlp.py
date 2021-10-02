@@ -3,11 +3,19 @@
     performed in this repository.
 """
 import enum
-from google.api_core.exceptions import InvalidArgument
-from google.cloud.language_v1.types.language_service import Entity, ClassificationCategory
-from google.cloud import language_v1
-from dotenv import load_dotenv
 from functools import wraps
+
+#pylint: disable=unused-import
+from google.api_core.exceptions import InvalidArgument
+
+#pylint: disable=unused-import
+from google.cloud.language_v1.types.language_service import (
+    Entity,
+    ClassificationCategory
+)
+from google.cloud import language_v1
+
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -90,7 +98,7 @@ def categorize_sentiment(sentiment):
 
     return SentimentCategory.NEUTRAL
 
-def choose_category(categories, heuristic="max"):
+def choose_category(categories):
     if not categories:
         return None
 

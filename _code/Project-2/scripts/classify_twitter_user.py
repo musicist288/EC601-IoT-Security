@@ -10,13 +10,10 @@ from argparse import ArgumentParser
 from collections import defaultdict
 from typing import Dict
 
-from google.cloud.language_v1.types.language_service import Entity
-
 from ec601_proj2 import twitter_utils
+
 from ec601_proj2.twitter_utils import (
-    Tweet,
-    TweetCount,
-    TwitterUser
+    Tweet
 )
 
 from ec601_proj2.google_nlp import (
@@ -83,7 +80,7 @@ def cli_main():
                 if category.confidence > 0.5:
                     topics.add(category.name)
 
-    print(f"Username talks about:")
+    print("Username talks about:")
     for topic in sorted(list(topics)):
         print(topic)
 
