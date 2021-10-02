@@ -14,7 +14,8 @@ import peewee
 from ec601_proj2 import (
     workers,
     models,
-    twitter_utils
+    twitter_utils,
+    google_nlp
 )
 
 MODELS = models.TABLES
@@ -115,7 +116,7 @@ class DatabaseWorker(unittest.TestCase):
             )
             user.save()
 
-    def _populate_queue_with_user_tweets(self, user_id, num_tweets):
+    def _generate_user_tweets(self, user_id, num_tweets) -> twitter_utils.Tweet:
         start_date = datetime.now() - timedelta(days=7)
         end_date = datetime.now()
 
@@ -128,10 +129,22 @@ class DatabaseWorker(unittest.TestCase):
                 text=f"This is tweet {tweet_id} from user {user_id}"
             )
 
+            yield tweet
+
+
+    def _populate_queue_with_user_tweets(self, user_id, num_tweets):
+        start_date = datetime.now() - timedelta(days=7)
+        end_date = datetime.now()
+        for tweet in self._generate_user_tweets(user_id, num_tweets):
             self.redis_client.rpush(
-                workers.Queues.STORE_USER_TWEETS_KEY,
+                workers.Queues.SCRAPE_USER_TWEETS_RESULTS,
                 json.dumps(tweet.to_dict())
             )
+
+    def _populate_db_with_user_tweets(self, user_id, num_tweets):
+        for tweet in self._generate_user_tweets(user_id, num_tweets):
+            models.add_tweet(tweet)
+
 
     def test_queue_scrape_new_user(self):
         self._populate_users(10)
@@ -139,7 +152,7 @@ class DatabaseWorker(unittest.TestCase):
         for i in range(10):
             self.assertTrue(
                 self.redis_client.sismember(
-                    workers.Queues.SCRAPE_USER_TWEETS_KEY,
+                    workers.Queues.SCRAPE_USER_TWEETS_REQUEST,
                     str(i)
                 )
             )
@@ -152,14 +165,14 @@ class DatabaseWorker(unittest.TestCase):
 
         self.worker.queue_users_to_scrape()
         self.assertEqual(
-            self.redis_client.scard(workers.Queues.SCRAPE_USER_TWEETS_KEY),
+            self.redis_client.scard(workers.Queues.SCRAPE_USER_TWEETS_REQUEST),
             0
         )
 
         user.last_scraped = datetime.now() - timedelta(days=3)
         self.worker.queue_users_to_scrape()
         self.assertEqual(
-            self.redis_client.scard(workers.Queues.SCRAPE_USER_TWEETS_KEY),
+            self.redis_client.scard(workers.Queues.SCRAPE_USER_TWEETS_REQUEST),
             0
         )
 
@@ -168,7 +181,7 @@ class DatabaseWorker(unittest.TestCase):
         self.worker.queue_users_to_scrape()
         self.assertTrue(
             self.redis_client.sismember(
-                workers.Queues.SCRAPE_USER_TWEETS_KEY,
+                workers.Queues.SCRAPE_USER_TWEETS_REQUEST,
                 user.id
             )
         )
@@ -191,3 +204,46 @@ class DatabaseWorker(unittest.TestCase):
             self.assertEqual(query.count(), user_id_tweet_count[user_id])
             user = models.User.get_by_id(user_id)
             self.assertIsNotNone(user.last_scraped)
+
+
+    def test_queue_entity_analysis_requests(self):
+        self._populate_users(1)
+        self._populate_db_with_user_tweets("0", 1)
+
+        self.worker.queue_entity_analysis_requests()
+
+        request = self.redis_client.lpop(workers.Queues.ENTITY_ANALYSIS_REQUEST)
+        model = workers.EntityAnalysisWorker.deserialize_request(request)
+        self.assertEqual(model.user_id, "0")
+
+        # That should be the only request.
+        request = self.redis_client.lpop(workers.Queues.ENTITY_ANALYSIS_REQUEST)
+        self.assertIsNone(request)
+
+
+    def test_store_entity_analysis_result(self):
+        self._populate_users(1)
+        self._populate_db_with_user_tweets("0", 1)
+
+        tweet = models.Tweet.select()[0]
+        entity = google_nlp.Entity(**{
+            "name": "Dummy Entity",
+            "type_": 0,
+            "metadata": {},
+            "salience": 0.13003,
+            "mentions": [],
+            "sentiment": {"magnitude": 2, "score": 0.33493}
+        })
+
+        result = workers.EntityAnalysisResult(tweet=tweet, entities=[entity])
+        self.redis_client.lpush(
+            workers.Queues.ENTITY_ANALYSIS_RESULTS,
+            result.to_json()
+        )
+
+        self.worker.store_entity_anlysis_results()
+
+        query = models.Entity.select().where(models.Entity.name == entity.name)
+        self.assertEqual(query.count(), 1)
+        ent = query[0]
+        self.assertEqual(ent.type, entity.type_)

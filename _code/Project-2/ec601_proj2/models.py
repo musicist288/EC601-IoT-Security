@@ -63,7 +63,7 @@ class UserTopic(BaseModel):
 class Entity(BaseModel):
     """Store entitiy results from Google"""
     name = CharField(unique=True)
-    type = CharField()
+    type = IntegerField()
 
 
 class TweetEntity(BaseModel):

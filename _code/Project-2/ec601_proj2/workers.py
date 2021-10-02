@@ -1,3 +1,5 @@
+from playhouse.shortcuts import dict_to_model, model_to_dict
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import os
@@ -34,10 +36,10 @@ class Queues:
     """Namespace for redis queue names used by workers."""
 
     # Contains user id strings
-    SCRAPE_USER_TWEETS_KEY = "worker:scrape_user_tweets"
+    SCRAPE_USER_TWEETS_REQUEST = "worker:scrape_user_tweets"
 
     # Contains JSON serialized twitter_utils.Tweet objects
-    STORE_USER_TWEETS_KEY = "db:store_user_tweets"
+    SCRAPE_USER_TWEETS_RESULTS = "db:store_user_tweets"
 
     # Contains JSON serialized twitter_utils.Tweet objects
     ENTITY_ANALYSIS_REQUEST = "worker:analyze_tweet_entities"
@@ -52,20 +54,20 @@ class Queues:
 
 @dataclass
 class EntityAnalysisResult:
-    tweet: twitter_utils.Tweet
+    tweet: models.Tweet
     entities: list[google_nlp.Entity]
 
     def to_json(self):
-        data = dict(tweet=self.tweet.to_dict(),
+        data = dict(tweet=model_to_dict(self.tweet, backrefs=True),
                     entities=[google_nlp.Entity.to_dict(e) for e in self.entities])
 
         return json.dumps(data)
 
     @classmethod
-    def from_json(cls, data):
+    def from_json(cls, data: str):
         data = json.loads(data)
-        tweet = twitter_utils.Tweet.from_dict(data['tweet'])
-        entities = [google_nlp.Entity.from_dict(e) for e in data['entities']]
+        tweet = dict_to_model(models.Tweet, data['tweet'])
+        entities = [google_nlp.Entity(**e) for e in data['entities']]
         return cls(tweet=tweet, entities=entities)
 
 
@@ -105,7 +107,7 @@ class DatabaseWorker(RedisWorker):
             be updated.
         """
         while True:
-            data = self._client.lpop(Queues.STORE_USER_TWEETS_KEY)
+            data = self._client.lpop(Queues.SCRAPE_USER_TWEETS_RESULTS)
             if not data:
                 break
 
@@ -130,7 +132,7 @@ class DatabaseWorker(RedisWorker):
         )
         for user in query:
             data =  ScrapeUserTweetsWorker.serialize_request(user)
-            self._client.sadd(Queues.SCRAPE_USER_TWEETS_KEY, data)
+            self._client.sadd(Queues.SCRAPE_USER_TWEETS_REQUEST, data)
 
 
     def store_entity_anlysis_results(self):
@@ -142,15 +144,15 @@ class DatabaseWorker(RedisWorker):
             result = EntityAnalysisWorker.deserialize_result(data)
             tweet = models.Tweet.get_by_id(result.tweet.id)
             for entity in result.entities:
-                ent_model, created = models.Entity.get_or_create(name=entity.name,
-                                                                 type=entity.type_)
-                models.TweetEntity.create(tweet=tweet, entity=entity)
+                ent_model, _ = models.Entity.get_or_create(name=entity.name,
+                                                           type=entity.type_.value)
+                models.TweetEntity.create(tweet=tweet, entity=ent_model)
             tweet.analyzed = True
             tweet.save()
 
 
     def queue_entity_analysis_requests(self):
-        tweets = models.Twitter.select().where(models.Twitter.analyzed == False)
+        tweets = models.Tweet.select().where(models.Tweet.analyzed == False)
         for tweet in tweets:
             request = EntityAnalysisWorker.serialize_request(tweet)
             self._client.rpush(Queues.ENTITY_ANALYSIS_REQUEST, request)
@@ -207,7 +209,7 @@ class ScrapeUserTweetsWorker(RedisWorker):
             tweets = twitter_utils.get_user_tweets(user_id)
             for tweet in tweets:
                 self._client.rpush(
-                    Queues.STORE_USER_TWEETS_KEY,
+                    Queues.SCRAPE_USER_TWEETS_RESULTS,
                     json.dumps(tweet.to_dict())
                 )
         except twitter_utils.TwitterRequestError as err:
@@ -223,8 +225,13 @@ class EntityAnalysisWorker(RedisWorker):
     """
 
     @classmethod
-    def serialize_request(cls, tweet: twitter_utils.Tweet) -> str:
-        pass
+    def serialize_request(cls, tweet: models.Tweet) -> str:
+        return json.dumps(model_to_dict(tweet))
+
+
+    @classmethod
+    def deserialize_request(cls, data: str) -> models.Tweet:
+        return dict_to_model(models.Tweet, json.loads(data))
 
 
     @classmethod
@@ -240,15 +247,11 @@ class EntityAnalysisWorker(RedisWorker):
 
     def analyze_queue(self):
         # TODO: Rate limit checks
-
-        while True:
-            tweet = self._client.lpop(Queues.ENTITY_ANALYSIS_REQUEST)
-            if not tweet:
-                break
-            else:
-                tweet = twitter_utils.Tweet.from_dict(json.loads(tweet))
-                result = self.analyze_tweet(tweet)
-                self._client.lpush(Queues.ENTITY_ANALYSIS_RESULTS, result.to_json())
+        tweet = self._client.lpop(Queues.ENTITY_ANALYSIS_REQUEST)
+        if tweet:
+            tweet = twitter_utils.Tweet.from_dict(json.loads(tweet))
+            result = self.analyze_tweet(tweet)
+            self._client.lpush(Queues.ENTITY_ANALYSIS_RESULTS, result.to_json())
 
 
     def process(self):
