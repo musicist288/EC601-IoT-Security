@@ -189,3 +189,5 @@ class DatabaseWorker(unittest.TestCase):
             user_id = str(i)
             query = models.Tweet.select().where(models.Tweet.user_id == user_id)
             self.assertEqual(query.count(), user_id_tweet_count[user_id])
+            user = models.User.get_by_id(user_id)
+            self.assertIsNotNone(user.last_scraped)

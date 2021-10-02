@@ -21,7 +21,8 @@ def cli_main():
 
     args = parser.parse_args()
     try:
-        print(args.func(args.text))
+        data = args.func(args.text)
+        print(data)
     except InvalidArgument as err:
         if err.code == 400:
             print(f"Error: {err.message}")

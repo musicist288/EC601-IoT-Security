@@ -32,6 +32,8 @@ class Tweet(BaseModel):
     user = ForeignKeyField(User, backref='tweets')
     created_at = DateTimeField()
     text = CharField()
+    analyzed = BooleanField(default=False)
+    classified = BooleanField(default=False)
 
 
 class Topic(BaseModel):
