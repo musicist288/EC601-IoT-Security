@@ -36,6 +36,7 @@ V2_API = TwitterAPI(TWITTER_CONSUMER_KEY,
                     TWITTER_CONSUMER_SECRET,
                     TWITTER_ACCESS_KEY,
                     TWITTER_ACCESS_SECRET,
+                    auth_type='oAuth2',
                     api_version="2")
 
 # Not all the old APIs have a V2 equivalent. (yet?)
