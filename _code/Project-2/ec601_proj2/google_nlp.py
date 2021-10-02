@@ -4,7 +4,7 @@
 """
 import enum
 from google.api_core.exceptions import InvalidArgument
-from google.cloud.language_v1.types.language_service import Entity
+from google.cloud.language_v1.types.language_service import Entity, ClassificationCategory
 from google.cloud import language_v1
 from dotenv import load_dotenv
 from functools import wraps

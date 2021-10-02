@@ -1,13 +1,15 @@
+from datetime import datetime, timedelta
+import json
 import os
-import unittest
+from pathlib import Path
 import random
 import subprocess
 import shutil
-import json
+import unittest
+from unittest import mock
 import uuid
-from pathlib import Path
+from playhouse.shortcuts import model_to_dict
 
-from datetime import datetime, timedelta
 import redis
 import peewee
 
@@ -22,10 +24,10 @@ MODELS = models.TABLES
 DB_FILENAME = "test.db"
 DATABASE = peewee.SqliteDatabase(DB_FILENAME)
 
-def random_date(start, end):
+def random_date(start: datetime, end: datetime) -> datetime:
     """
-    This function will return a random datetime between two datetime
-    objects.
+        This function will return a random datetime between two datetime
+        objects.
     """
     delta = end - start
     int_delta = (delta.days * 24 * 60 * 60) + delta.seconds
@@ -47,7 +49,10 @@ class RedisServerHelper:
         if cls._proc is not None:
             return
 
-        cls.base_path.mkdir(exist_ok=True)
+        if cls.base_path.exists():
+            shutil.rmtree(cls.base_path)
+
+        cls.base_path.mkdir()
         with cls.template_file.open("r") as f:
             data = f.read()
             data = data.replace("{basepath}", str(cls.base_path))
@@ -59,6 +64,7 @@ class RedisServerHelper:
             shutil.which("redis-server"),
             cls.config_path
         ])
+
 
     @classmethod
     def stop(cls):
@@ -75,8 +81,7 @@ class RedisServerHelper:
         shutil.rmtree(cls.base_path)
 
 
-
-class DatabaseWorker(unittest.TestCase):
+class DatabaseTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -92,6 +97,9 @@ class DatabaseWorker(unittest.TestCase):
 
 
     def setUp(self):
+        if os.path.exists(DB_FILENAME):
+            os.unlink(DB_FILENAME)
+
         DATABASE.bind(MODELS, bind_refs=False, bind_backrefs=False)
         DATABASE.connect()
         DATABASE.create_tables(MODELS)
@@ -116,6 +124,7 @@ class DatabaseWorker(unittest.TestCase):
             )
             user.save()
 
+
     def _generate_user_tweets(self, user_id, num_tweets) -> twitter_utils.Tweet:
         start_date = datetime.now() - timedelta(days=7)
         end_date = datetime.now()
@@ -125,7 +134,8 @@ class DatabaseWorker(unittest.TestCase):
             tweet = twitter_utils.Tweet(
                 id=tweet_id,
                 author_id=user_id,
-                created_at=random_date(start_date, end_date).strftime(twitter_utils.DATE_FORMAT),
+                created_at=random_date(start_date, end_date).strftime(
+                    twitter_utils.DATE_FORMAT),
                 text=f"This is tweet {tweet_id} from user {user_id}"
             )
 
@@ -141,9 +151,34 @@ class DatabaseWorker(unittest.TestCase):
                 json.dumps(tweet.to_dict())
             )
 
+
     def _populate_db_with_user_tweets(self, user_id, num_tweets):
         for tweet in self._generate_user_tweets(user_id, num_tweets):
             models.add_tweet(tweet)
+
+
+    def _generate_dummy_entities(self, num_entities):
+        for i in range(num_entities):
+            yield google_nlp.Entity(**{
+                "name": "Dummy Entity %s" % i,
+                "type_": 0,
+                "metadata": {},
+                "salience": 0.13003,
+                "mentions": [],
+                "sentiment": {"magnitude": 2, "score": 0.33493}
+            })
+
+
+    def _populate_database_with_entities(self, num_entities):
+        for entity in self._generate_dummy_entities(num_entities):
+            models.Entity.create(name=entity.name, type=entity.type_)
+
+
+class TestDatabaseWorker(DatabaseTestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.worker = workers.DatabaseWorker(self.redis_client)
 
 
     def test_queue_scrape_new_user(self):
@@ -156,6 +191,7 @@ class DatabaseWorker(unittest.TestCase):
                     str(i)
                 )
             )
+
 
     def test_queue_rescrape_user(self):
         self._populate_users(1)
@@ -241,9 +277,183 @@ class DatabaseWorker(unittest.TestCase):
             result.to_json()
         )
 
-        self.worker.store_entity_anlysis_results()
+        self.worker.store_entity_analysis_results()
 
         query = models.Entity.select().where(models.Entity.name == entity.name)
         self.assertEqual(query.count(), 1)
         ent = query[0]
         self.assertEqual(ent.type, entity.type_)
+
+
+    def test_queue_classification_request(self):
+        self._populate_users(1)
+        self._populate_db_with_user_tweets("0", 10)
+        self._populate_database_with_entities(2)
+
+        entities = list(models.Entity.select())
+        tweets = list(models.Tweet.select())
+        for i, tweet in enumerate(tweets):
+            if i >= 5:
+                entity = entities[1]
+            else:
+                entity = entities[0]
+            tweet.analyzed = True
+            tweet.save()
+
+            models.TweetEntity.create(tweet=tweet, entity=entity)
+
+        self.worker.queue_classification_requests()
+
+        req1 = self.redis_client.lpop(workers.Queues.CLASSIFICATION_REQUESTS)
+        self.assertIsNotNone(req1)
+        req1 = workers.ClassificationRequest.from_json(req1)
+        self.assertEqual(req1.user_id, "0")
+        expected_tweet_ids = {t.id for t in tweets[:5]}
+        request_tweet_ids = {t.id for t in req1.tweets}
+        self.assertEqual(request_tweet_ids, expected_tweet_ids)
+
+        req2 = self.redis_client.lpop(workers.Queues.CLASSIFICATION_REQUESTS)
+        self.assertIsNotNone(req2)
+        req2 = workers.ClassificationRequest.from_json(req2)
+        self.assertEqual(req2.user_id, "0")
+        expected_tweet_ids = {t.id for t in tweets[5:]}
+        request_tweet_ids = {t.id for t in req2.tweets}
+        self.assertEqual(request_tweet_ids, expected_tweet_ids)
+
+
+    def test_store_classification_result(self):
+        self._populate_users(1)
+        self._populate_db_with_user_tweets("0", 10)
+        tweets = list(models.Tweet.select())
+
+        categories = [
+            google_nlp.ClassificationCategory(name="Cat 1", confidence=0.5),
+            google_nlp.ClassificationCategory(name="Cat 2", confidence=0.5)
+        ]
+
+        result = workers.ClassificationResult(user_id="0",
+                                              tweets=tweets,
+                                              categories=categories)
+
+        self.redis_client.rpush(workers.Queues.CLASSIFICATION_RESULTS, result.to_json())
+        self.worker.store_classification_results()
+        uts = models.UserTopic.select().where(models.UserTopic.user_id == "0")
+        self.assertEqual(uts.count(), len(categories))
+
+        ut_cats = {ut.topic.name for ut in uts}
+        cats = {cat.name for cat in categories}
+        self.assertEqual(ut_cats, cats)
+        for ut in uts:
+            self.assertEqual(ut.tweet_count, len(tweets))
+
+
+
+class TestScrapeTwitterWorker(DatabaseTestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.db_worker = workers.DatabaseWorker(self.redis_client)
+        self.scrape_worker = workers.ScrapeUserTweetsWorker(self.redis_client)
+
+
+    @mock.patch("ec601_proj2.workers.twitter_utils")
+    def test_scrape_single_user_tweets(self, mock_twitter):
+        self._populate_users(1)
+        self.db_worker.queue_users_to_scrape()
+
+        tweets = list(self._generate_user_tweets("0", 2))
+        mock_twitter.Tweet = twitter_utils.Tweet
+        mock_twitter.get_user_tweets.return_value = tweets
+
+        self.scrape_worker.process()
+        mock_twitter.get_user_tweets.assert_called_once_with("0")
+
+        for tweet in tweets:
+            result = self.redis_client.lpop(workers.Queues.SCRAPE_USER_TWEETS_RESULTS)
+            self.assertIsNotNone(result)
+            result_tweet = self.scrape_worker.deserialize_result(result)
+            self.assertEqual(result_tweet.id, tweet.id)
+
+        # Make sure the queue is empty
+        self.scrape_worker.process()
+        self.assertEqual(mock_twitter.get_user_tweets.call_count, 1)
+
+
+class TestEntityAnalysisWorker(DatabaseTestCase):
+
+
+    def setUp(self):
+        super().setUp()
+        self.db_worker = workers.DatabaseWorker(self.redis_client)
+        self.scrape_worker = workers.ScrapeUserTweetsWorker(self.redis_client)
+        self.entity_analysis_worker = workers.EntityAnalysisWorker(self.redis_client)
+
+
+    def test_analyze_entities(self):
+        self._populate_users(1)
+        self.db_worker.queue_users_to_scrape()
+
+        tweets = list(self._generate_user_tweets("0", 1))
+        with mock.patch("ec601_proj2.workers.twitter_utils") as mock_twitter:
+            mock_twitter.get_user_tweets.return_value = tweets
+            self.scrape_worker.process()
+
+
+        self.db_worker.process()
+
+        with mock.patch("ec601_proj2.workers.google_nlp") as mock_nlp:
+            mock_nlp.Entity = google_nlp.Entity
+            response = mock.Mock()
+            response.entities = entities = self._generate_dummy_entities(2)
+            mock_nlp.LanguageClient.analyze_entities.return_value = response
+            self.entity_analysis_worker.process()
+            mock_nlp.LanguageClient.analyze_entities.assert_called_once_with(
+                tweets[0].text)
+
+        result = self.redis_client.lpop(workers.Queues.ENTITY_ANALYSIS_RESULTS)
+        result = self.entity_analysis_worker.deserialize_result(result)
+        self.assertEqual(result.tweet.id, tweets[0].id)
+        for i, ent in enumerate(entities):
+            self.assertEqual(result.entities[i].name, ent.name)
+
+
+class TestClassificationWorker(DatabaseTestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.worker = workers.ClassificationWorker(self.redis_client)
+
+
+    def test_classify_tweets(self):
+        self._populate_users(1)
+        self._populate_db_with_user_tweets("0", 5)
+        tweets = list(models.Tweet.select().where(models.Tweet.user_id == "0"))
+        req = workers.ClassificationRequest(user_id="0", tweets=tweets)
+
+        self.redis_client.rpush(workers.Queues.CLASSIFICATION_REQUESTS, req.to_json())
+        tweet_text = " ".join([t.text for t in tweets])
+
+        with mock.patch("ec601_proj2.workers.google_nlp") as mock_nlp:
+            mock_nlp.ClassificationCategory = google_nlp.ClassificationCategory
+            categories = [
+                google_nlp.ClassificationCategory(name="Cat 1", confidence=0.5),
+                google_nlp.ClassificationCategory(name="Cat 2", confidence=0.5)
+            ]
+            response = mock.Mock()
+            response.categories = categories
+            mock_nlp.LanguageClient.classify_text.return_value = response
+            self.worker.process()
+            mock_nlp.LanguageClient.classify_text.assert_called_once_with(tweet_text)
+
+            result = self.redis_client.lpop(workers.Queues.CLASSIFICATION_RESULTS)
+            self.assertIsNotNone(result)
+            result = workers.ClassificationResult.from_json(result)
+
+            self.assertEqual(result.user_id, "0")
+            expected_tweets_ids = {t.id for t in tweets}
+            result_tweet_ids = {t.id for t in result.tweets}
+            self.assertEqual(expected_tweets_ids, result_tweet_ids)
+
+            category_names = [c.name for c in result.categories]
+            expected_categories = [c.name for c in categories]
+            self.assertEqual(expected_categories, category_names)

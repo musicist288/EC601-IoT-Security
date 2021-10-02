@@ -92,27 +92,7 @@ class Tweet: #pylint: disable=too-few-public-methods
         self.author_id = kwargs.get("author_id")
         self.created_at = kwargs.get("created_at")
         self.text = kwargs.get("text", "")
-        self._user = None
 
-
-    @property
-    def author(self) -> TwitterUser:
-        """
-            Return the author of the tweet.
-        """
-
-        if not self._user:
-            author_data = get_user_by_id(self.author_id)
-            self._user = TwitterUser(**author_data.json())
-
-        return self._user
-
-    @author.setter
-    def author(self, value):
-        if not isinstance(value, TwitterUser):
-            raise TypeError("Invalide author type. Must be of type TwitterUser")
-
-        self._user = value
 
     def __str__(self):
         return f"""
@@ -324,26 +304,21 @@ def get_user_by_username(username) -> TwitterUser:
     return TwitterUser(**json['data'])
 
 
-def get_following(user: TwitterUser, pagination=None):
-    return _user_list_result(f"users/:{user.id}/following", pagination)
+def get_following(user_id: str, pagination=None):
+    return _user_list_result(f"users/:{user_id}/following", pagination)
 
 
-def get_followers(user: TwitterUser, pagination=None):
-    return _user_list_result(f"users/:{user.author_ids}/followers", pagination)
+def get_followers(user_id: str, pagination=None):
+    return _user_list_result(f"users/:{user_id}/followers", pagination)
 
 
-def get_blocking(user: TwitterUser, pagination=None):
-    return _user_list_result(f"users/:{user.id}/blocking", pagination)
+def get_blocking(user_id: str, pagination=None):
+    return _user_list_result(f"users/:{user_id}/blocking", pagination)
 
 
-def get_muting(user: TwitterUser, pagination=None):
-    return _user_list_result(f"users/:{user.id}/muting", pagination)
+def get_muting(user_id: str, pagination=None):
+    return _user_list_result(f"users/:{user_id}/muting", pagination)
 
-
-def get_user_tweets(user: TwitterUser, limit=10):
-    tweets = _tweets_list_result(f"users/:{user.id}/tweets", limit)
-
-    for tweet in tweets:
-        tweet.author = user
-
+def get_user_tweets(user_id: str, limit=10):
+    tweets = _tweets_list_result(f"users/:{user_id}/tweets", limit)
     return tweets

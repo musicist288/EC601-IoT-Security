@@ -53,7 +53,7 @@ class UserTopic(BaseModel):
     topic = ForeignKeyField(Topic, backref="user_topics")
 
     ## How many tweets this topic came up in.
-    count = FloatField(default=0)
+    tweet_count = FloatField(default=0)
 
     # User added this explicitly as one of thier topics
     # even though it's not detected by their tweet history.

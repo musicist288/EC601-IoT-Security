@@ -1,3 +1,4 @@
+from collections import defaultdict
 from playhouse.shortcuts import dict_to_model, model_to_dict
 
 from dataclasses import dataclass
@@ -73,14 +74,40 @@ class EntityAnalysisResult:
 
 @dataclass
 class ClassificationRequest:
+    user_id: str
     tweets: list[models.Tweet]
-    user: models.User
+
+    def to_json(self):
+        data = dict(user_id=self.user_id,
+                    tweets=[model_to_dict(t) for t in self.tweets])
+        return json.dumps(data)
+
+    @classmethod
+    def from_json(cls, data):
+        data = json.loads(data)
+        tweets = [dict_to_model(models.Tweet, t) for t in data['tweets']]
+        user_id = data['user_id']
+        return cls(user_id=user_id, tweets=tweets)
 
 
 @dataclass
 class ClassificationResult:
-    user: models.User
-    topics: list[str]
+    user_id: str
+    categories: list[google_nlp.ClassificationCategory]
+    tweets: list[models.Tweet]
+
+    def to_json(self):
+        cats = [google_nlp.ClassificationCategory.to_dict(c) for c in self.categories]
+        return json.dumps(dict(user_id=self.user_id,
+                               categories=cats,
+                               tweets=[model_to_dict(t) for t in self.tweets]))
+
+    @classmethod
+    def from_json(cls, data: str):
+        data = json.loads(data)
+        cats = [google_nlp.ClassificationCategory(**c) for c in data['categories']]
+        tweets = [dict_to_model(models.Tweet, t) for t in data['tweets']]
+        return cls(user_id=data['user_id'], categories=cats, tweets=tweets)
 
 
 class RedisWorker:
@@ -111,7 +138,7 @@ class DatabaseWorker(RedisWorker):
             if not data:
                 break
 
-            tweet = ScrapeUserTweetsWorker.deserialze_result(data)
+            tweet = ScrapeUserTweetsWorker.deserialize_result(data)
 
             models.add_tweet(tweet)
             user = models.User.get_by_id(tweet.author_id)
@@ -135,7 +162,7 @@ class DatabaseWorker(RedisWorker):
             self._client.sadd(Queues.SCRAPE_USER_TWEETS_REQUEST, data)
 
 
-    def store_entity_anlysis_results(self):
+    def store_entity_analysis_results(self):
         while True:
             data = self._client.lpop(Queues.ENTITY_ANALYSIS_RESULTS)
             if not data:
@@ -159,12 +186,58 @@ class DatabaseWorker(RedisWorker):
 
 
     def store_classification_results(self):
-        pass
+        while True:
+            result = self._client.lpop(Queues.CLASSIFICATION_RESULTS)
+            if not result:
+                break
+
+            result = ClassificationResult.from_json(result)
+            user_model = models.User.get_by_id(result.user_id)
+            if result.categories:
+                for cat in result.categories:
+                    topic_model, created = models.Topic.get_or_create(name=cat.name)
+                    ut, created = models.UserTopic.get_or_create(user=user_model,
+                                                                 topic=topic_model)
+                    if not created:
+                        # We've detected this user's topic before,
+                        # increment the count
+                        ut.tweet_count += len(result.tweets)
+                    else:
+                        ut.tweet_count = len(result.tweets)
+
+                    ut.save()
+
+                    ## If a topic was found for these tweets,
+                    ## mark them as having been part of a classification
+                    for tweet in result.tweets:
+                        t = models.Tweet.get_by_id(tweet.id)
+                        t.classified = True
+                        t.save()
 
 
     def queue_classification_requests(self):
-        pass
+        """
+            Build the queue of twweets that should be classified to determine
+            user's topics.
+        """
 
+        ## Grab all the tweets and their entities.
+        query = models.Tweet.select().where(
+            (models.Tweet.analyzed == True) &
+            (models.Tweet.classified == False)
+        )
+
+        mapping = defaultdict(list)
+
+        for tweet in query:
+            for tweet_entity in tweet.tweet_entities:
+                key = (tweet.user_id, tweet_entity.entity.name)
+                mapping[key].append(tweet)
+
+        for (user_id, entity), tweets in mapping.items():
+            request = ClassificationRequest(user_id =user_id, tweets=tweets)
+            self._client.rpush(Queues.CLASSIFICATION_REQUESTS,
+                               ClassificationWorker.serialize_request(request))
 
     def process(self):
         self.store_scraped_tweets()
@@ -190,18 +263,16 @@ class ScrapeUserTweetsWorker(RedisWorker):
 
 
     @classmethod
-    def deserialze_result(self, data) -> twitter_utils.Tweet:
+    def deserialize_result(self, data) -> twitter_utils.Tweet:
         return twitter_utils.Tweet(**json.loads(data))
 
 
     def scrape_user_tweets(self, user_id: str):
         rate_limit = self._client.get(self.RATE_LIMIT_EXPIRES_KEY)
         if rate_limit is not None:
-            rate_limit = dateparser.parse(rate_limit)
-
-        if rate_limit > datetime.now():
-            ## Can't do anything waiting for the rate limit.
-            return
+            if dateparser.parse(rate_limit) > datetime.now():
+                ## Can't do anything waiting for the rate limit.
+                return
 
         user = models.User.get_by_id(user_id)
         try:
@@ -216,6 +287,11 @@ class ScrapeUserTweetsWorker(RedisWorker):
             if err.status_code == 429:
                 pass # TODO: How to get rate limiting in here from header
 
+
+    def process(self):
+        user_id = self._client.spop(Queues.SCRAPE_USER_TWEETS_REQUEST)
+        if user_id:
+            self.scrape_user_tweets(user_id.decode())
 
 
 class EntityAnalysisWorker(RedisWorker):
@@ -239,7 +315,7 @@ class EntityAnalysisWorker(RedisWorker):
         return EntityAnalysisResult.from_json(data)
 
 
-    def analyze_tweet(self, tweet: twitter_utils.Tweet) -> EntityAnalysisResult:
+    def analyze_tweet(self, tweet: models.Tweet) -> EntityAnalysisResult:
         response = google_nlp.LanguageClient.analyze_entities(tweet.text)
         return EntityAnalysisResult(tweet=tweet,
                                     entities=list(response.entities))
@@ -249,7 +325,7 @@ class EntityAnalysisWorker(RedisWorker):
         # TODO: Rate limit checks
         tweet = self._client.lpop(Queues.ENTITY_ANALYSIS_REQUEST)
         if tweet:
-            tweet = twitter_utils.Tweet.from_dict(json.loads(tweet))
+            tweet = dict_to_model(models.Tweet, json.loads(tweet))
             result = self.analyze_tweet(tweet)
             self._client.lpush(Queues.ENTITY_ANALYSIS_RESULTS, result.to_json())
 
@@ -263,3 +339,32 @@ class ClassificationWorker(RedisWorker):
         Service classification jobs and stash results
         for persistance
     """
+
+    @classmethod
+    def serialize_request(self, request: ClassificationRequest):
+        return request.to_json()
+
+
+    @classmethod
+    def deserialize_result(self, data: str):
+        return ClassificationResult.from_json(data)
+
+
+    def classify_user_tweets(self):
+        request = self._client.lpop(Queues.CLASSIFICATION_REQUESTS)
+        if not request:
+            return
+
+        request = ClassificationRequest.from_json(request)
+
+        tweet_text = " ".join([t.text for t in request.tweets])
+        results = google_nlp.LanguageClient.classify_text(tweet_text)
+        if len(results.categories) > 0:
+            cr = ClassificationResult(user_id = request.user_id,
+                                      categories=results.categories,
+                                      tweets=request.tweets)
+            self._client.rpush(Queues.CLASSIFICATION_RESULTS, cr.to_json())
+
+
+    def process(self):
+        self.classify_user_tweets()

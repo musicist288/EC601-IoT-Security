@@ -19,10 +19,12 @@ class DatabaseTests(unittest.TestCase):
         DATABASE.connect()
         DATABASE.create_tables(MODELS)
 
+
     def tearDown(self):
         DATABASE.drop_tables(MODELS)
         DATABASE.close()
         os.unlink(DB_FILENAME)
+
 
     def test_create_user(self):
         twitter_user = twitter_utils.TwitterUser(
@@ -40,6 +42,7 @@ class DatabaseTests(unittest.TestCase):
         attrs = ('id', 'username', 'url', 'description', 'verified')
         for attr in attrs:
             self.assertEqual(getattr(user, attr), getattr(twitter_user, attr))
+
 
     def test_create_tweet(self):
         twitter_user = twitter_utils.TwitterUser(
@@ -107,7 +110,6 @@ class DatabaseTests(unittest.TestCase):
         ret = models.TweetEntity.get(models.TweetEntity.tweet == tweet_model and models.TweetEntity.entity == entity_model)
         self.assertEqual(ret.tweet.id, tweet.id)
         self.assertEqual(ret.entity.name, "MYENT")
-
 
 
     def test_topic(self):

@@ -48,6 +48,7 @@ def group_tweets_by_entities(tweets: list[Tweet]) -> Dict[str, list[Tweet]]:
 
     return grouping
 
+
 def cli_main():
     parser = ArgumentParser()
     parser.add_argument("username")
@@ -68,7 +69,7 @@ def cli_main():
         tweets = [Tweet.from_dict(e) for e in data]
     else:
         print("Query api for tweets.")
-        tweets = twitter_utils.get_user_tweets(user, limit=args.num_tweets)
+        tweets = twitter_utils.get_user_tweets(user.id, limit=args.num_tweets)
         with open(filename, 'w') as f:
             json.dump([t.to_dict() for t in tweets], f)
 
