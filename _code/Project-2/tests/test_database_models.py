@@ -8,21 +8,17 @@ import peewee
 from ec601_proj2 import models
 from ec601_proj2 import twitter_utils
 
-MODELS = models.TABLES
 DB_FILENAME = "test.db"
-DATABASE = peewee.SqliteDatabase(DB_FILENAME)
 
 class DatabaseTests(unittest.TestCase):
 
     def setUp(self):
-        DATABASE.bind(MODELS, bind_refs=False, bind_backrefs=False)
-        DATABASE.connect()
-        DATABASE.create_tables(MODELS)
+        self.database = models.init_db(DB_FILENAME)
 
 
     def tearDown(self):
-        DATABASE.drop_tables(MODELS)
-        DATABASE.close()
+        self.database.drop_tables(models.TABLES)
+        self.database.close()
         os.unlink(DB_FILENAME)
 
 
@@ -79,9 +75,22 @@ class DatabaseTests(unittest.TestCase):
         model = models.Entity.create(name=name, type=type_)
         model.save()
 
-        ent = models.Entity.get(models.Entity.name == name)
+        ent = models.Entity.get(models.Entity.name == name, models.Entity.type == type_)
         self.assertEqual(ent.name, model.name)
         self.assertEqual(ent.type, model.type)
+
+        type_ = "TEST"
+        model = models.Entity.create(name=name, type=type_)
+        ent = models.Entity.get(models.Entity.name == name, models.Entity.type == type_)
+        self.assertEqual(ent.name, model.name)
+        self.assertEqual(ent.type, model.type)
+
+        self.assertRaises(
+            peewee.IntegrityError,
+            models.Entity.create,
+            name=name,
+            type=type_
+        )
 
 
     def test_tweet_entity(self):

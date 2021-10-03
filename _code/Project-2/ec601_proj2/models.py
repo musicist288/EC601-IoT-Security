@@ -6,9 +6,8 @@
     the ORM will generate a primary key field and use it for
     building the model relations.
 """
+import os
 
-#pylint: disable=too-few-public-methods
-#pylint: disable=missing-class-docstring
 from peewee import (
     Model,
     DateTimeField,
@@ -22,20 +21,16 @@ from peewee import (
 
 from . import twitter_utils
 
-DATABASE = SqliteDatabase("project.db")
-
 class BaseModel(Model):
-    """Base model for binding to module database."""
-    class Meta:
-        database = DATABASE
+    pass
 
 
 class User(BaseModel):
     id = CharField(primary_key=True)
     name = CharField()
     username = CharField()
-    url = CharField()
-    description = CharField()
+    url = CharField(null=True)
+    description = CharField(null=True)
     verified = BooleanField()
     last_scraped = DateTimeField(null=True)
 
@@ -75,8 +70,11 @@ class UserTopic(BaseModel):
 
 class Entity(BaseModel):
     """Store entitiy results from Google"""
-    name = CharField(unique=True)
+    name = CharField()
     type = IntegerField()
+
+
+Entity.add_index(Entity.index(Entity.name, Entity.type, unique=True))
 
 
 class TweetEntity(BaseModel):
@@ -121,9 +119,14 @@ def add_tweet(tweet: twitter_utils.Tweet):
     return tweet_model
 
 TABLES = [User, Tweet, Topic, UserTopic, Entity, TweetEntity]
-def createdb(filename):
+
+def init_db(filename):
     #pylint: disable=global-statement
-    global DATABASE
-    DATABASE = SqliteDatabase(filename)
-    DATABASE.connect()
-    DATABASE.create_tables(TABLES)
+    existed = os.path.exists(filename)
+    database = SqliteDatabase(filename)
+    database.bind(TABLES)
+    database.connect()
+    if not existed:
+        database.create_tables(TABLES)
+
+    return database

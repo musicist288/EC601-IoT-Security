@@ -5,33 +5,23 @@ from collections import defaultdict
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import os
 import json
 import logging
 
 import dateparser
-from dotenv import load_dotenv
 from playhouse.shortcuts import dict_to_model, model_to_dict
 import redis
 
 from . import models
 from . import twitter_utils
 from . import google_nlp
-
-load_dotenv()
-
-REDIS_SERVER_HOST = os.getenv("REDIS_SERVER_HOST")
-REDIS_SERVER_PORT = int(os.getenv("REDIS_SERVER_PORT"))
-REDIS_SERVER_DB = int(os.getenv("REDIS_SERVER_DB"))
-
-def get_redis_client():
-    return redis.Redis(REDIS_SERVER_HOST,
-                       port=REDIS_SERVER_PORT,
-                       db=REDIS_SERVER_DB)
-
+from . import LOGGER
 
 class Queues:
     """Namespace for redis queue names used by workers."""
+
+    DB_TWEET_PROCESSING_PENDING = "db:tweet_processing_requested"
+    DB_USER_PROCESSING_PENDING = "db:user_processing_requested"
 
     # Contains user id strings
     SCRAPE_USER_TWEETS_REQUEST = "worker:scrape_user_tweets"
@@ -120,6 +110,11 @@ class DatabaseWorker(RedisWorker):
         other workers use queues to manage.
     """
 
+    def _get_pending_tweets_query(self):
+        pending_tweet_ids = self._client.smembers(Queues.DB_TWEET_PROCESSING_PENDING)
+        return models.Tweet.select().where(models.Tweet.id << pending_tweet_ids)
+
+
     def store_scraped_tweets(self):
         """
             Store scraped user tweets in the database.
@@ -133,14 +128,17 @@ class DatabaseWorker(RedisWorker):
         while True:
             data = self._client.lpop(Queues.SCRAPE_USER_TWEETS_RESULTS)
             if not data:
+                LOGGER.debug("No user tweets to store.")
                 break
 
             tweet = ScrapeUserTweetsWorker.deserialize_result(data)
+            LOGGER.debug("Storing tweet %s for user: %s", tweet.id, tweet.author_id)
 
             models.add_tweet(tweet)
             user = models.User.get_by_id(tweet.author_id)
             user.last_scraped = datetime.now().strftime(twitter_utils.DATE_FORMAT)
             user.save()
+            self._client.srem(Queues.DB_USER_PROCESSING_PENDING, user.id)
 
 
     def queue_users_to_scrape(self):
@@ -149,46 +147,62 @@ class DatabaseWorker(RedisWorker):
             scraped more than once a week. When finished, this worker should put
             user IDs in a redis list.
         """
+        pending_user_ids = self._client.smembers(Queues.DB_USER_PROCESSING_PENDING)
         last_week = datetime.now() - timedelta(days=7)
+
+        pending_query = models.User.select().where(models.User.id.in_(pending_user_ids))
         query = models.User.select().where(
-            (models.User.last_scraped.is_null()) |
-            (models.User.last_scraped <= last_week)
+            ((models.User.last_scraped.is_null()) |
+             (models.User.last_scraped <= last_week)) &
+             ~(models.User.id << pending_query)
         )
         for user in query: #pylint: disable=not-an-iterable
+            LOGGER.debug("Queuing user to scrape %s",  user.id)
             data =  ScrapeUserTweetsWorker.serialize_request(user)
             self._client.sadd(Queues.SCRAPE_USER_TWEETS_REQUEST, data)
+            self._client.sadd(Queues.DB_USER_PROCESSING_PENDING, user.id)
 
 
     def store_entity_analysis_results(self):
         while True:
             data = self._client.lpop(Queues.ENTITY_ANALYSIS_RESULTS)
             if not data:
+                LOGGER.debug("No entity analysis results to store.")
                 break
 
             result = EntityAnalysisWorker.deserialize_result(data)
             tweet = models.Tweet.get_by_id(result.tweet.id)
+            LOGGER.debug("Storing entity analysis for tweet: %s", tweet.id)
             for entity in result.entities:
                 ent_model, _ = models.Entity.get_or_create(name=entity.name,
                                                            type=entity.type_.value)
                 models.TweetEntity.create(tweet=tweet, entity=ent_model)
+            self._client.srem(Queues.DB_TWEET_PROCESSING_PENDING, tweet.id)
             tweet.analyzed = True
             tweet.save()
 
 
     def queue_entity_analysis_requests(self):
-        tweets = models.Tweet.select().where(models.Tweet.analyzed >> False)
+        tweets = models.Tweet.select().where(
+            (models.Tweet.analyzed >> False) &
+            ~(models.Tweet.id << self._get_pending_tweets_query())
+        )
         for tweet in tweets: #pylint: disable=not-an-iterable
+            LOGGER.debug("Queue tweet for entity analysis: %s", tweet.id)
             request = EntityAnalysisWorker.serialize_request(tweet)
             self._client.rpush(Queues.ENTITY_ANALYSIS_REQUEST, request)
+            self._client.sadd(Queues.DB_TWEET_PROCESSING_PENDING, tweet.id)
 
 
     def store_classification_results(self):
         while True:
             result = self._client.lpop(Queues.CLASSIFICATION_RESULTS)
             if not result:
+                LOGGER.debug("No classification results to store.")
                 break
 
             result = ClassificationResult.from_json(result)
+            LOGGER.debug("Storing classification results for user: %s", result.user_id)
             user_model = models.User.get_by_id(result.user_id)
             if result.categories:
                 for cat in result.categories:
@@ -204,12 +218,13 @@ class DatabaseWorker(RedisWorker):
 
                     ut.save()
 
-                    ## If a topic was found for these tweets,
-                    ## mark them as having been part of a classification
-                    for tweet in result.tweets:
-                        t = models.Tweet.get_by_id(tweet.id)
-                        t.classified = True
-                        t.save()
+            ## Mark these tweets as classified so they don't get used
+            ## again.
+            for tweet in result.tweets:
+                self._client.srem(Queues.DB_TWEET_PROCESSING_PENDING, tweet.id)
+                t = models.Tweet.get_by_id(tweet.id)
+                t.classified = True
+                t.save()
 
 
     def queue_classification_requests(self):
@@ -219,20 +234,31 @@ class DatabaseWorker(RedisWorker):
         """
 
         ## Grab all the tweets and their entities.
-        query = models.Tweet.select().where(
-            (models.Tweet.analyzed >> True) &
-            (models.Tweet.classified >> False)
-        )
+        pending_tweet_ids = {s.decode() for s in self._client.smembers(Queues.DB_TWEET_PROCESSING_PENDING)}
+        query = models.Tweet.select().where(models.Tweet.classified >> False)
+
+        tweets_by_user = defaultdict(list)
+        for tweet in query: #pylint: disable=not-an-iterable
+            tweets_by_user[tweet.user_id].append(tweet)
 
         mapping = defaultdict(list)
+        for user_id, tweets in tweets_by_user.items():
+            all_analyzed = all([t.analyzed for t in tweets])
+            all_free = all([t.id not in pending_tweet_ids for t in tweets])
 
-        for tweet in query: #pylint: disable=not-an-iterable
-            for tweet_entity in tweet.tweet_entities:
-                key = (tweet.user_id, tweet_entity.entity.name)
-                mapping[key].append(tweet)
+            if all_analyzed and all_free:
+                for tweet in tweets:
+                    for tweet_entity in tweet.tweet_entities:
+                        key = (tweet.user_id, tweet_entity.entity.name)
+                        mapping[key].append(tweet)
+
+                    self._client.sadd(Queues.DB_TWEET_PROCESSING_PENDING, tweet.id)
+            else:
+                LOGGER.debug("Not querying user tweets. Outstanding opreations required.")
 
         for (user_id, _), tweets in mapping.items():
-            request = ClassificationRequest(user_id =user_id, tweets=tweets)
+            LOGGER.debug("Queuing classification request for user: %s", user_id)
+            request = ClassificationRequest(user_id=user_id, tweets=tweets)
             self._client.rpush(Queues.CLASSIFICATION_REQUESTS,
                                ClassificationWorker.serialize_request(request))
 
@@ -269,15 +295,18 @@ class ScrapeUserTweetsWorker(RedisWorker):
         if rate_limit is not None:
             if dateparser.parse(rate_limit) > datetime.now():
                 ## Can't do anything waiting for the rate limit.
+                LOGGER.debug("Not scraping user tweets. Waiting for rate limit to reset.")
                 return
 
         ## Query to make sure user exists
         user = models.User.get_by_id(user_id)
         if not user:
-            logging.debug("Not scraping user. Does not exist: %s", user_id)
+            LOGGER.debug("Not scraping user. Does not exist: %s", user_id)
+            return
 
         try:
             # TODO: Limit by last scraped date range.
+            LOGGER.debug("Querying tweets for user.")
             tweets = twitter_utils.get_user_tweets(user.id)
             for tweet in tweets:
                 self._client.rpush(
@@ -293,6 +322,9 @@ class ScrapeUserTweetsWorker(RedisWorker):
         user_id = self._client.spop(Queues.SCRAPE_USER_TWEETS_REQUEST)
         if user_id:
             self.scrape_user_tweets(user_id.decode())
+            return True
+        else:
+            return False
 
 
 class EntityAnalysisWorker(RedisWorker):
@@ -327,12 +359,16 @@ class EntityAnalysisWorker(RedisWorker):
         tweet = self._client.lpop(Queues.ENTITY_ANALYSIS_REQUEST)
         if tweet:
             tweet = dict_to_model(models.Tweet, json.loads(tweet))
+            LOGGER.debug("Analysing tweet: %s", tweet.id)
             result = self.analyze_tweet(tweet)
             self._client.lpush(Queues.ENTITY_ANALYSIS_RESULTS, result.to_json())
+            return True
+        else:
+            return False
 
 
     def process(self):
-        self.analyze_queue()
+        return self.analyze_queue()
 
 
 class ClassificationWorker(RedisWorker):
@@ -354,18 +390,26 @@ class ClassificationWorker(RedisWorker):
     def classify_user_tweets(self):
         request = self._client.lpop(Queues.CLASSIFICATION_REQUESTS)
         if not request:
-            return
+            return False
 
         request = ClassificationRequest.from_json(request)
 
+        LOGGER.debug("Classifying tweets from user: %s", request.user_id)
         tweet_text = " ".join([t.text for t in request.tweets])
-        results = google_nlp.LanguageClient.classify_text(tweet_text)
-        if len(results.categories) > 0:
+        try:
+            results = google_nlp.LanguageClient.classify_text(tweet_text)
             cr = ClassificationResult(user_id = request.user_id,
-                                      categories=results.categories,
+                                        categories=results.categories,
+                                        tweets=request.tweets)
+        except google_nlp.InvalidArgument as err:
+            LOGGER.warning("Could not classify tweet text: %s", err)
+            cr = ClassificationResult(user_id=request.user_id,
+                                      categories=[],
                                       tweets=request.tweets)
-            self._client.rpush(Queues.CLASSIFICATION_RESULTS, cr.to_json())
+
+        self._client.rpush(Queues.CLASSIFICATION_RESULTS, cr.to_json())
+        return True
 
 
     def process(self):
-        self.classify_user_tweets()
+        return self.classify_user_tweets()

@@ -11,7 +11,6 @@ import uuid
 from playhouse.shortcuts import model_to_dict
 
 import redis
-import peewee
 
 from ec601_proj2 import (
     workers,
@@ -20,9 +19,7 @@ from ec601_proj2 import (
     google_nlp
 )
 
-MODELS = models.TABLES
 DB_FILENAME = "test.db"
-DATABASE = peewee.SqliteDatabase(DB_FILENAME)
 
 def random_date(start: datetime, end: datetime) -> datetime:
     """
@@ -100,15 +97,13 @@ class DatabaseTestCase(unittest.TestCase):
         if os.path.exists(DB_FILENAME):
             os.unlink(DB_FILENAME)
 
-        DATABASE.bind(MODELS, bind_refs=False, bind_backrefs=False)
-        DATABASE.connect()
-        DATABASE.create_tables(MODELS)
+        self.database = models.init_db(DB_FILENAME)
         self.worker = workers.DatabaseWorker(self.redis_client)
 
 
     def tearDown(self):
-        DATABASE.drop_tables(MODELS)
-        DATABASE.close()
+        self.database.drop_tables(models.TABLES)
+        self.database.close()
         os.unlink(DB_FILENAME)
 
 
@@ -252,9 +247,26 @@ class TestDatabaseWorker(DatabaseTestCase):
         model = workers.EntityAnalysisWorker.deserialize_request(request)
         self.assertEqual(model.user_id, "0")
 
+
         # That should be the only request.
         request = self.redis_client.lpop(workers.Queues.ENTITY_ANALYSIS_REQUEST)
         self.assertIsNone(request)
+
+
+    def test_queue_entity_pending_only(self):
+        self._populate_users(1)
+        self._populate_db_with_user_tweets("0", 1)
+
+        # Make sure we don't queue the same thing twice.
+        self.worker.queue_entity_analysis_requests()
+        self.worker.queue_entity_analysis_requests()
+
+        request = self.redis_client.lpop(workers.Queues.ENTITY_ANALYSIS_REQUEST)
+        self.assertIsNotNone(request)
+
+        request = self.redis_client.lpop(workers.Queues.ENTITY_ANALYSIS_REQUEST)
+        self.assertIsNone(request)
+
 
 
     def test_store_entity_analysis_result(self):
@@ -319,6 +331,27 @@ class TestDatabaseWorker(DatabaseTestCase):
         expected_tweet_ids = {t.id for t in tweets[5:]}
         request_tweet_ids = {t.id for t in req2.tweets}
         self.assertEqual(request_tweet_ids, expected_tweet_ids)
+
+    def test_queue_classification_request(self):
+        self._populate_users(1)
+        self._populate_db_with_user_tweets("0", 10)
+        self._populate_database_with_entities(1)
+
+        entities = list(models.Entity.select())
+        tweets = list(models.Tweet.select())
+        for i, tweet in enumerate(tweets):
+            entity = entities[0]
+            tweet.analyzed = True
+            tweet.save()
+            models.TweetEntity.create(tweet=tweet, entity=entity)
+
+        self.worker.queue_classification_requests()
+        self.worker.queue_classification_requests()
+        request = self.redis_client.lpop(workers.Queues.CLASSIFICATION_REQUESTS)
+        self.assertIsNotNone(request)
+
+        request = self.redis_client.lpop(workers.Queues.CLASSIFICATION_REQUESTS)
+        self.assertIsNone(request)
 
 
     def test_store_classification_result(self):

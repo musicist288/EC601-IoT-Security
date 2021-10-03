@@ -16,6 +16,7 @@ This directory contains experiments developed for Project 2 for EC601.
   pip.
 * Access to Twitter's Developer APIs
 * Access to Google's NLP APIs
+* Access to a redis server.
 
 The following environment variables need to be set:
 
@@ -45,3 +46,35 @@ to the root to the repo. For example, in a bash shell: `export PYTHONPATH=$(pwd)
 See the README file in the `scripts/` folder for a description of the different
 scripts and their results.
 
+
+## Classification Pipeline
+
+The example application that runs the full classification pipeline is in
+`applications/classify_twitter_users.py`. To run the pipline, you need
+to have access to a running redis server. If you have redis installed
+on your system, you can start an instance of the server from the root
+of this repository using:
+
+`redis-server redis.conf`
+
+Then you need to have the following environement variables set (or in your `.env` file)
+
+| Environment Variable Name | Description                                          |
+|---------------------------|------------------------------------------------------|
+| `REDIS_SERVER_HOST`       | The hostname of the redis server                     |
+| `REDIS_SERVER_PORT`       | The port on which to connect                         |
+| `REDIS_SERVER_DB`         | The redis database to use for the pipeline           |
+| `SQLITE_DATABASE`         | The filename of the sqlite database to store results |
+
+Once the environemnt is setup and redis is running, to kick things off, put things in
+the users queue using:
+
+`python applications/classify_user_tweets.py [username]`
+
+Where `[username]` is the twitter user whom should be classified.
+
+Once that is done, run `python applications/classify_user_tweets.py process`. This
+will run the pipeline through once for all the users to scrape. If you run this
+using `-d/--as-daemon`, it will process the queue inifintely, other programs
+could submit work by adding users to the database so they will get picked up by
+the classification pipeline.

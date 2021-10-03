@@ -273,7 +273,8 @@ def _user_list_result(endpoint, pagination) -> Tuple[ResponseMetadata, list[Twit
 
 def _tweets_list_result(endpoint, limit):
     params = {
-        "max_results": limit
+        "max_results": limit,
+        "tweet.fields": "id,author_id,created_at,text"
     }
     response = _check_response(V2_API.request(endpoint, params=params))
     json = response.json()
@@ -286,12 +287,15 @@ def get_user_by_username(username) -> TwitterUser:
         Get information for a list of usernames.
     """
 
-    response = _check_response(V2_API.request(f"users/by/username/:{username}"))
-    json = response.json()
-    if not json.get('data'):
+    params = {
+        "user.fields": "description,url,id,username,name,verified"
+    }
+    response = _check_response(V2_API.request(f"users/by/username/:{username}", params=params))
+    body = response.json()
+    if not body.get('data'):
         return None
 
-    return TwitterUser(**json['data'])
+    return TwitterUser(**body['data'])
 
 
 def get_following(user_id: str, pagination=None):
