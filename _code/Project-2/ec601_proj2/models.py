@@ -28,7 +28,7 @@ class BaseModel(Model):
 class User(BaseModel):
     id = CharField(primary_key=True)
     name = CharField()
-    username = CharField()
+    username = CharField(unique=True)
     url = CharField(null=True)
     description = CharField(null=True)
     verified = BooleanField()

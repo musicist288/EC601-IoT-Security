@@ -75,17 +75,20 @@ class ClassifyUsers:
 
 
     def _run_single(self):
-        self.db_worker.process()
+        self.db_worker.queue_users_to_scrape()
         while self.twitter_worker.process():
             pass
+        self.db_worker.store_scraped_tweets()
 
-        self.db_worker.process()
+        self.db_worker.queue_entity_analysis_requests()
         while self.entity_worker.process():
             pass
+        self.db_worker.store_entity_analysis_results()
 
-        self.db_worker.process()
+        self.db_worker.queue_classification_requests()
         while self.classify_worker.process():
             pass
+        self.db_worker.store_classification_results()
 
 
     def run(self, single=True):
@@ -155,7 +158,6 @@ def main():
     database = models.init_db(DB_FILE)
 
     args.func(database, redis_client, args)
-
 
 if __name__ == "__main__":
     main()
