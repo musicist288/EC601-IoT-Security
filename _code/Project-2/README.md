@@ -41,7 +41,11 @@ The utilities for interacting with the APIs are in the `ec601_proj2` folder.
 Scripts that exercise these utilities are in the `scripts/` directory. They
 depend on `import ec601_proj2` succeeding. Your options are to run all scripts
 from the root of this repo, or you can set your PYTHONPATH environment variable
-to the root to the repo. For example, in a bash shell: `export PYTHONPATH=$(pwd)`.
+to the root to the repo. For example, in a bash shell:
+
+```
+export PYTHONPATH=$(pwd)
+```
 
 See the README file in the `scripts/` folder for a description of the different
 scripts and their results.
@@ -78,3 +82,16 @@ will run the pipeline through once for all the users to scrape. If you run this
 using `-d/--as-daemon`, it will process the queue inifintely, other programs
 could submit work by adding users to the database so they will get picked up by
 the classification pipeline.
+
+
+## Web Client
+
+Once there is some data in the database, you can run the web client to search for users
+by topics they are interested in:
+
+```
+export FLASK_APP=applications.classify_user_tweets
+flask run
+```
+
+Then load `http://localhost:5000` in your browser and start searching (case sensitive for now).
