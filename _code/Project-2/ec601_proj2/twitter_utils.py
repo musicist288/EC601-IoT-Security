@@ -14,7 +14,8 @@ from dataclasses import dataclass
 
 import dateparser
 from dotenv import load_dotenv
-from TwitterAPI import TwitterAPI, TwitterRequestError
+from TwitterAPI import TwitterAPI
+from TwitterAPI.TwitterError import TwitterError, TwitterRequestError
 from requests.models import Response
 
 load_dotenv()
@@ -23,12 +24,6 @@ TWITTER_CONSUMER_SECRET = os.getenv("TWITTER_CONSUMER_SECRET")
 TWITTER_ACCESS_KEY = os.getenv("TWITTER_ACCESS_KEY")
 TWITTER_ACCESS_SECRET = os.getenv("TWITTER_ACCESS_SECRET")
 COUNT_GRANULARITIES = ("minute", "hour", "day")
-
-RAGE_LIMIT_HEADERS = {
-    "ceiling": "x-rate-limit-limit",
-    "remaining": "x-rate-limit-remaining",
-    "time_till_reset": "x-rate-limit-reset"
-}
 
 DATE_FORMAT = "%Y-%m-%dT%H:%M:SZ"
 
@@ -46,6 +41,15 @@ V11_API = TwitterAPI(TWITTER_CONSUMER_KEY,
                      TWITTER_CONSUMER_SECRET,
                      TWITTER_ACCESS_KEY,
                      TWITTER_ACCESS_SECRET)
+
+
+class TwitterRateLimitError(TwitterError):
+
+    def __init__(self, reset_time, *args, **kwargs):
+        super().__init__(reset_time)
+        self.reset_epoch_seconds = int(reset_time)
+
+
 
 class TweetCount:
 
@@ -176,12 +180,7 @@ def search(query, start_date=None, end_date=None, max_results=10):
     }
 
     _add_payload_dates(payload, start_date, end_date)
-    response = V2_API.request("tweets/search/recent", payload)
-
-    # TODO Report/warn about rate-limiting
-    if response.status_code != 200:
-        raise TwitterRequestError(status_code=response.status_code,
-                                  msg=response.text)
+    response = _check_response(V2_API.request("tweets/search/recent", payload))
 
     payload = response.json()
     count = payload['meta']['result_count']
@@ -206,12 +205,7 @@ def counts(query, granularity="hour", start_time=None, end_time=None) -> list[Tw
     }
 
     _add_payload_dates(payload, start_time, end_time)
-    response = V2_API.request("tweets/counts/recent", payload)
-
-    # TODO Report/warn about rate-limiting
-    if response.status_code != 200:
-        raise TwitterRequestError(status_code=response.status_code,
-                                  msg=response.text)
+    response = _check_response(V2_API.request("tweets/counts/recent", payload))
 
     payload = response.json()
     return [TweetCount(query, **count) for count in payload['data']]
@@ -220,9 +214,7 @@ def counts(query, granularity="hour", start_time=None, end_time=None) -> list[Tw
 def home_timeline(count=5) -> list[Tweet]:
     params = { "count": count }
 
-    resp = V11_API.request("statuses/home_timeline", params)
-    if resp.status_code != 200:
-        raise TwitterRequestError(status_code=resp.status_code, msg=resp.text)
+    resp = _check_response(V11_API.request("statuses/home_timeline", params))
 
     data = resp.json()
     tweets = []
@@ -247,8 +239,11 @@ def get_user_by_id(user_id):
 
 def _check_response(response):
     if response.status_code != 200:
-        raise TwitterRequestError(status_code=response.status_code,
-                                  msg=response.text)
+        if response.status_code == 429:
+            raise TwitterRateLimitError(response.headers['x-rate-limit-reset'])
+        else:
+            raise TwitterRequestError(status_code=response.status_code,
+                                      msg=response.text)
 
     return response
 

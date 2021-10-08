@@ -5,6 +5,7 @@ from pathlib import Path
 import random
 import subprocess
 import shutil
+import time
 import unittest
 from unittest import mock
 import uuid
@@ -104,15 +105,16 @@ class DatabaseTestCase(unittest.TestCase):
     def tearDown(self):
         self.database.drop_tables(models.TABLES)
         self.database.close()
+        self.redis_client.flushdb()
         os.unlink(DB_FILENAME)
 
 
     def _populate_users(self, num_users):
-        for worker_id in range(num_users):
+        for user_id in range(num_users):
             user = models.User.create(
-                id=str(worker_id),
+                id=str(user_id),
                 name="Rand",
-                username="Notrand",
+                username="User %d" % user_id,
                 url="https://google.com",
                 description="",
                 verified = False,
@@ -388,6 +390,8 @@ class TestScrapeTwitterWorker(DatabaseTestCase):
         self.db_worker = workers.DatabaseWorker(self.redis_client)
         self.scrape_worker = workers.ScrapeUserTweetsWorker(self.redis_client)
 
+    def tearDown(self):
+        return super().tearDown()
 
     @mock.patch("ec601_proj2.workers.twitter_utils")
     def test_scrape_single_user_tweets(self, mock_twitter):
@@ -410,6 +414,35 @@ class TestScrapeTwitterWorker(DatabaseTestCase):
         # Make sure the queue is empty
         self.scrape_worker.process()
         self.assertEqual(mock_twitter.get_user_tweets.call_count, 1)
+
+
+    @mock.patch("ec601_proj2.workers.twitter_utils")
+    def test_rate_limit_hit(self, mock_twitter):
+        rate_limit_expires = time.time() + 300
+        mock_twitter.TwitterRateLimitError = twitter_utils.TwitterRateLimitError
+        error = twitter_utils.TwitterRateLimitError(rate_limit_expires)
+        mock_twitter.get_user_tweets.side_effect = error
+        self._populate_users(1)
+        self.db_worker.queue_users_to_scrape()
+
+        self.scrape_worker.process()
+        exp = self.redis_client.get(self.scrape_worker.RATE_LIMIT_EXPIRES_KEY).decode()
+        self.assertIsNotNone(exp)
+        self.assertEqual(int(exp), int(rate_limit_expires))
+        self.assertEqual(mock_twitter.get_user_tweets.call_count, 1)
+
+        self.scrape_worker.process()
+        # Make sure it didn't call it again
+        self.assertEqual(mock_twitter.get_user_tweets.call_count, 1)
+
+        # Simulate that the rate limit has reset expired.
+        self.redis_client.set(self.scrape_worker.RATE_LIMIT_EXPIRES_KEY, time.time() - 1)
+        tweets = list(self._generate_user_tweets("0", 2))
+        mock_twitter.Tweet = twitter_utils.Tweet
+        mock_twitter.get_user_tweets.side_effect = None
+        mock_twitter.get_user_tweets.return_value = tweets
+        self.scrape_worker.process()
+        self.assertEqual(mock_twitter.get_user_tweets.call_count, 2)
 
 
 class TestEntityAnalysisWorker(DatabaseTestCase):

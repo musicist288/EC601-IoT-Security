@@ -6,6 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
+import time
 import logging
 
 import dateparser
@@ -293,9 +294,11 @@ class ScrapeUserTweetsWorker(RedisWorker):
     def scrape_user_tweets(self, user_id: str):
         rate_limit = self._client.get(self.RATE_LIMIT_EXPIRES_KEY)
         if rate_limit is not None:
-            if dateparser.parse(rate_limit) > datetime.now():
+            rate_limit = float(rate_limit.decode())
+            if (rate_limit - time.time()) > 0:
                 ## Can't do anything waiting for the rate limit.
                 LOGGER.debug("Not scraping user tweets. Waiting for rate limit to reset.")
+                self._client.sadd(Queues.SCRAPE_USER_TWEETS_REQUEST, user_id)
                 return
 
         ## Query to make sure user exists
@@ -313,9 +316,12 @@ class ScrapeUserTweetsWorker(RedisWorker):
                     Queues.SCRAPE_USER_TWEETS_RESULTS,
                     json.dumps(tweet.to_dict())
                 )
+        except twitter_utils.TwitterRateLimitError as err:
+            self._client.set(self.RATE_LIMIT_EXPIRES_KEY, str(err.reset_epoch_seconds))
+            self._client.sadd(Queues.SCRAPE_USER_TWEETS_REQUEST, user_id)
         except twitter_utils.TwitterRequestError as err:
-            if err.status_code == 429:
-                pass # TODO: How to get rate limiting in here from header
+            LOGGER.error("Received unknonw error from twitter (%s): %s ",
+                         err.status_code, err.msg)
 
 
     def process(self):
