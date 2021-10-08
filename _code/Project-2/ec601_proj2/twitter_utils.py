@@ -47,7 +47,7 @@ class TwitterRateLimitError(TwitterError):
 
     def __init__(self, reset_time, *args, **kwargs):
         super().__init__(reset_time)
-        self.reset_epoch_seconds = int(reset_time)
+        self.reset_epoch_seconds = float(reset_time)
 
 
 
@@ -311,3 +311,17 @@ def get_muting(user_id: str, pagination=None):
 def get_user_tweets(user_id: str, limit=10):
     _, tweets = _tweets_list_result(f"users/:{user_id}/tweets", limit)
     return tweets
+
+def iterate_following(user_id: str):
+    page = None
+
+    while True:
+        meta, users = get_following(user_id, pagination=page)
+        if meta.result_count == 0:
+            return
+
+        for user in users:
+            yield user
+
+        if not meta.next_token:
+            return

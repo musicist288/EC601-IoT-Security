@@ -33,6 +33,7 @@ class User(BaseModel):
     description = CharField(null=True)
     verified = BooleanField()
     last_scraped = DateTimeField(null=True)
+    scraped_following = BooleanField(default=False)
 
 
 class Tweet(BaseModel):
@@ -88,7 +89,7 @@ class TweetEntity(BaseModel):
 
 ## Helper functions for working with models
 
-def create_user(twitter_user: twitter_utils.TwitterUser):
+def create_user(twitter_user: twitter_utils.TwitterUser) -> User:
     user, created = User.get_or_create(**twitter_user.to_dict())
 
     if created:

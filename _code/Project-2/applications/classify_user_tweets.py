@@ -139,7 +139,6 @@ def main():
 
     args = parser.parse_args()
 
-
     try:
         log_level = getattr(logging, args.log_level.upper())
     except AttributeError as err:
@@ -156,7 +155,6 @@ def main():
 
     LOGGER.debug("Using database file: %s", DB_FILE)
     database = models.init_db(DB_FILE)
-
     args.func(database, redis_client, args)
 
 if __name__ == "__main__":

@@ -18,6 +18,21 @@ from . import twitter_utils
 from . import google_nlp
 from . import LOGGER
 
+RATE_LIMIT_EXPIRES_KEY = "twitter:rate_limit_up"
+
+def twitter_rate_limit_time(redis_client: redis.Redis):
+    expires = redis_client.get(RATE_LIMIT_EXPIRES_KEY)
+    if not expires:
+        return 0
+
+    return float(expires.decode()) - time.time()
+
+
+def set_twitter_rate_limit_time(redis_client: redis.Redis, exp: float):
+    redis_client.set(RATE_LIMIT_EXPIRES_KEY, exp)
+
+
+
 class Queues:
     """Namespace for redis queue names used by workers."""
 
@@ -279,7 +294,6 @@ class ScrapeUserTweetsWorker(RedisWorker):
         scraped, this worker should queue the up for entity analysis.
     """
 
-    RATE_LIMIT_EXPIRES_KEY = "twitter:rate_limit_up"
 
     @classmethod
     def serialize_request(cls, user: models.User) -> str:
@@ -292,14 +306,11 @@ class ScrapeUserTweetsWorker(RedisWorker):
 
 
     def scrape_user_tweets(self, user_id: str):
-        rate_limit = self._client.get(self.RATE_LIMIT_EXPIRES_KEY)
-        if rate_limit is not None:
-            rate_limit = float(rate_limit.decode())
-            if (rate_limit - time.time()) > 0:
-                ## Can't do anything waiting for the rate limit.
-                LOGGER.debug("Not scraping user tweets. Waiting for rate limit to reset.")
-                self._client.sadd(Queues.SCRAPE_USER_TWEETS_REQUEST, user_id)
-                return
+        if twitter_rate_limit_time(self._client) > 0:
+            ## Can't do anything waiting for the rate limit.
+            LOGGER.debug("Not scraping user tweets. Waiting for rate limit to reset.")
+            self._client.sadd(Queues.SCRAPE_USER_TWEETS_REQUEST, user_id)
+            return
 
         ## Query to make sure user exists
         user = models.User.get_by_id(user_id)
@@ -317,7 +328,7 @@ class ScrapeUserTweetsWorker(RedisWorker):
                     json.dumps(tweet.to_dict())
                 )
         except twitter_utils.TwitterRateLimitError as err:
-            self._client.set(self.RATE_LIMIT_EXPIRES_KEY, str(err.reset_epoch_seconds))
+            set_twitter_rate_limit_time(self._client, err.reset_epoch_seconds)
             self._client.sadd(Queues.SCRAPE_USER_TWEETS_REQUEST, user_id)
         except twitter_utils.TwitterRequestError as err:
             LOGGER.error("Received unknonw error from twitter (%s): %s ",
