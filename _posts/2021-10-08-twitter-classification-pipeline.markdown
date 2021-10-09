@@ -30,7 +30,7 @@ The problem essentially came down to asking, "Can I get a list of people who tal
 
 To achieve the flow above, I created a pipeline to scrape and classify users by their tweets. It's architected using a queues and workers as depicted below. The intent is that the different workers could act as their own microservices at scale:
 
-![Classification Pipeline Diagram](/assets/images/Project2_ClassificationPipeline.png)
+![Classification Pipeline Diagram]({{site.baseurl}}/assets/images/Project2_ClassificationPipeline.png)
 
 The different worker roles are as follows:
 
