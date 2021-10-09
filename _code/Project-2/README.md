@@ -90,8 +90,8 @@ Once there is some data in the database, you can run the web client to search fo
 by topics they are interested in:
 
 ```
-export FLASK_APP=applications.classify_user_tweets
+export FLASK_APP=applications.web_client.api
 flask run
 ```
 
-Then load `http://localhost:5000` in your browser and start searching (case sensitive for now).
+Then load `http://localhost:5000` in your browser and start searching (case sensitive for now, Type `/` to get a list of topics).
