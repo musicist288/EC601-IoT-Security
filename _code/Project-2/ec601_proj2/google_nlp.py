@@ -6,7 +6,7 @@ import enum
 from functools import wraps
 
 #pylint: disable=unused-import
-from google.api_core.exceptions import InvalidArgument
+from google.api_core.exceptions import InvalidArgument, ResourceExhausted
 
 #pylint: disable=unused-import
 from google.cloud.language_v1.types.language_service import (

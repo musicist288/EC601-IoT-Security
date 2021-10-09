@@ -18,18 +18,29 @@ from . import twitter_utils
 from . import google_nlp
 from . import LOGGER
 
-RATE_LIMIT_EXPIRES_KEY = "twitter:rate_limit_up"
+TWITTER_RATE_LIMIT_EXPIRES_KEY = "twitter:rate_limit_up"
+GOOGLE_RATE_LIMIT_EXPIRES_KEY = "google:rate_limit_up"
 
-def twitter_rate_limit_time(redis_client: redis.Redis):
-    expires = redis_client.get(RATE_LIMIT_EXPIRES_KEY)
+def _get_rate_limit_time(redis_client: redis.Redis, key: str):
+    expires = redis_client.get(key)
     if not expires:
         return 0
 
     return float(expires.decode()) - time.time()
 
+def get_google_rate_limit_expires(redis_client: redis.Redis):
+    return _get_rate_limit_time(redis_client, GOOGLE_RATE_LIMIT_EXPIRES_KEY)
 
-def set_twitter_rate_limit_time(redis_client: redis.Redis, exp: float):
-    redis_client.set(RATE_LIMIT_EXPIRES_KEY, exp)
+def set_google_rate_limit_expires(redis_client: redis.Redis, exp: float):
+    redis_client.set(GOOGLE_RATE_LIMIT_EXPIRES_KEY, exp)
+
+
+def get_twitter_rate_limt_expires(redis_client: redis.Redis):
+    return _get_rate_limit_time(redis_client, TWITTER_RATE_LIMIT_EXPIRES_KEY)
+
+
+def set_twitter_rate_limit_expires(redis_client: redis.Redis, exp: float):
+    redis_client.set(TWITTER_RATE_LIMIT_EXPIRES_KEY, exp)
 
 
 
@@ -200,10 +211,11 @@ class DatabaseWorker(RedisWorker):
 
     def queue_entity_analysis_requests(self):
         tweets = models.Tweet.select().where(
-            (models.Tweet.analyzed >> False) &
-            ~(models.Tweet.id << self._get_pending_tweets_query())
+            (models.Tweet.analyzed >> False)
         )
         for tweet in tweets: #pylint: disable=not-an-iterable
+            if self._client.sismember(Queues.DB_TWEET_PROCESSING_PENDING, tweet.id):
+                continue
             LOGGER.debug("Queue tweet for entity analysis: %s", tweet.id)
             request = EntityAnalysisWorker.serialize_request(tweet)
             self._client.rpush(Queues.ENTITY_ANALYSIS_REQUEST, request)
@@ -294,6 +306,10 @@ class ScrapeUserTweetsWorker(RedisWorker):
         scraped, this worker should queue the up for entity analysis.
     """
 
+    def __init__(self, *args, **kwargs):
+        self.tweet_count_per_fetch = kwargs.pop("tweet_count", 10)
+        super().__init__(*args, **kwargs)
+
 
     @classmethod
     def serialize_request(cls, user: models.User) -> str:
@@ -306,7 +322,7 @@ class ScrapeUserTweetsWorker(RedisWorker):
 
 
     def scrape_user_tweets(self, user_id: str):
-        if twitter_rate_limit_time(self._client) > 0:
+        if get_twitter_rate_limt_expires(self._client) > 0:
             ## Can't do anything waiting for the rate limit.
             LOGGER.debug("Not scraping user tweets. Waiting for rate limit to reset.")
             self._client.sadd(Queues.SCRAPE_USER_TWEETS_REQUEST, user_id)
@@ -321,21 +337,27 @@ class ScrapeUserTweetsWorker(RedisWorker):
         try:
             # TODO: Limit by last scraped date range.
             LOGGER.debug("Querying tweets for user.")
-            tweets = twitter_utils.get_user_tweets(user.id)
+            tweets = twitter_utils.get_user_tweets(user.id, limit=self.tweet_count_per_fetch)
             for tweet in tweets:
                 self._client.rpush(
                     Queues.SCRAPE_USER_TWEETS_RESULTS,
                     json.dumps(tweet.to_dict())
                 )
         except twitter_utils.TwitterRateLimitError as err:
-            set_twitter_rate_limit_time(self._client, err.reset_epoch_seconds)
+            set_twitter_rate_limit_expires(self._client, err.reset_epoch_seconds)
             self._client.sadd(Queues.SCRAPE_USER_TWEETS_REQUEST, user_id)
+            LOGGER.debug("Rate limit hit.")
         except twitter_utils.TwitterRequestError as err:
             LOGGER.error("Received unknonw error from twitter (%s): %s ",
                          err.status_code, err.msg)
 
 
     def process(self):
+        if get_twitter_rate_limt_expires(self._client) > 0:
+            ## Can't do anything waiting for the rate limit.
+            LOGGER.debug("Not scraping user tweets. Waiting for rate limit to reset.")
+            return "wait"
+
         user_id = self._client.spop(Queues.SCRAPE_USER_TWEETS_REQUEST)
         if user_id:
             self.scrape_user_tweets(user_id.decode())
@@ -366,25 +388,37 @@ class EntityAnalysisWorker(RedisWorker):
 
 
     def analyze_tweet(self, tweet: models.Tweet) -> EntityAnalysisResult:
-        response = google_nlp.LanguageClient.analyze_entities(tweet.text)
-        return EntityAnalysisResult(tweet=tweet,
-                                    entities=list(response.entities))
+        try:
+            response = google_nlp.LanguageClient.analyze_entities(tweet.text)
+            return EntityAnalysisResult(tweet=tweet,
+                                        entities=list(response.entities))
+        except google_nlp.ResourceExhausted as err:
+            LOGGER.warning("Hit google rate limit when classifying tweets.")
+            set_google_rate_limit_expires(self._client, time.time() + 60*15)
+            return False
 
 
     def analyze_queue(self):
         # TODO: Rate limit checks
-        tweet = self._client.lpop(Queues.ENTITY_ANALYSIS_REQUEST)
-        if tweet:
-            tweet = dict_to_model(models.Tweet, json.loads(tweet))
+        tweet_req = self._client.lpop(Queues.ENTITY_ANALYSIS_REQUEST)
+        if tweet_req:
+            tweet = dict_to_model(models.Tweet, json.loads(tweet_req))
             LOGGER.debug("Analysing tweet: %s", tweet.id)
             result = self.analyze_tweet(tweet)
-            self._client.lpush(Queues.ENTITY_ANALYSIS_RESULTS, result.to_json())
-            return True
+            if result is False:
+                self._client.lpush(Queues.ENTITY_ANALYSIS_REQUEST, tweet_req)
+                return "wait"
+            else:
+                self._client.lpush(Queues.ENTITY_ANALYSIS_RESULTS, result.to_json())
+                return True
         else:
             return False
 
 
     def process(self):
+        if get_google_rate_limit_expires(self._client) > 0:
+            return "wait"
+
         return self.analyze_queue()
 
 
@@ -405,11 +439,11 @@ class ClassificationWorker(RedisWorker):
 
 
     def classify_user_tweets(self):
-        request = self._client.lpop(Queues.CLASSIFICATION_REQUESTS)
-        if not request:
+        req = self._client.lpop(Queues.CLASSIFICATION_REQUESTS)
+        if not req:
             return False
 
-        request = ClassificationRequest.from_json(request)
+        request = ClassificationRequest.from_json(req)
 
         LOGGER.debug("Classifying tweets from user: %s", request.user_id)
         tweet_text = " ".join([t.text for t in request.tweets])
@@ -423,10 +457,19 @@ class ClassificationWorker(RedisWorker):
             cr = ClassificationResult(user_id=request.user_id,
                                       categories=[],
                                       tweets=request.tweets)
+        except google_nlp.ResourceExhausted as err:
+            LOGGER.warning("Hit google rate limit when classifying tweets.")
+            self._client.lpush(Queues.CLASSIFICATION_REQUESTS, req)
+            set_google_rate_limit_expires(self._client, time.time() + 60*15)
+            return False
+
 
         self._client.rpush(Queues.CLASSIFICATION_RESULTS, cr.to_json())
         return True
 
 
     def process(self):
+        if get_google_rate_limit_expires(self._client) > 0:
+            return "wait"
+
         return self.classify_user_tweets()

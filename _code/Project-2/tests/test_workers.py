@@ -426,7 +426,7 @@ class TestScrapeTwitterWorker(DatabaseTestCase):
         self.db_worker.queue_users_to_scrape()
 
         self.scrape_worker.process()
-        exp = workers.twitter_rate_limit_time(self.redis_client)
+        exp = workers.get_twitter_rate_limt_expires(self.redis_client)
         self.assertIsNotNone(exp)
         self.assertGreater(exp, 0)
         self.assertEqual(mock_twitter.get_user_tweets.call_count, 1)
@@ -436,8 +436,8 @@ class TestScrapeTwitterWorker(DatabaseTestCase):
         self.assertEqual(mock_twitter.get_user_tweets.call_count, 1)
 
         # Simulate that the rate limit has reset expired.
-        workers.set_twitter_rate_limit_time(self.redis_client, time.time() - 1)
-        self.assertLessEqual(workers.twitter_rate_limit_time(self.redis_client), 0)
+        workers.set_twitter_rate_limit_expires(self.redis_client, time.time() - 1)
+        self.assertLessEqual(workers.get_twitter_rate_limt_expires(self.redis_client), 0)
         tweets = list(self._generate_user_tweets("0", 2))
         mock_twitter.Tweet = twitter_utils.Tweet
         mock_twitter.get_user_tweets.side_effect = None

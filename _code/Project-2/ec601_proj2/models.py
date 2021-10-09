@@ -34,6 +34,7 @@ class User(BaseModel):
     verified = BooleanField()
     last_scraped = DateTimeField(null=True)
     scraped_following = BooleanField(default=False)
+    protected = BooleanField()
 
 
 class Tweet(BaseModel):

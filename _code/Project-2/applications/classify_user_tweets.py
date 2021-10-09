@@ -14,7 +14,8 @@ from ec601_proj2.workers import (
     EntityAnalysisWorker,
     ClassificationWorker,
     ScrapeUserTweetsWorker,
-    Queues
+    get_google_rate_limit_expires,
+    get_twitter_rate_limt_expires
 )
 
 load_dotenv()
@@ -58,7 +59,8 @@ class ClassifyUsers:
         self.db_worker = DatabaseWorker(self.redis_client)
         self.entity_worker = EntityAnalysisWorker(self.redis_client)
         self.classify_worker = ClassificationWorker(self.redis_client)
-        self.twitter_worker = ScrapeUserTweetsWorker(self.redis_client)
+        # Grab 50 tweets per user.
+        self.twitter_worker = ScrapeUserTweetsWorker(self.redis_client, tweet_count=50)
 
 
     def _run_forever(self):
@@ -71,24 +73,47 @@ class ClassifyUsers:
             self.entity_worker.process()
             LOGGER.debug("Process classify_worker")
             self.classify_worker.process()
-            time.sleep(1)
+            time.sleep(0.2)
 
 
     def _run_single(self):
+        # Scrape Twitter
         self.db_worker.queue_users_to_scrape()
-        while self.twitter_worker.process():
-            pass
+        while True:
+            rc = self.twitter_worker.process()
+            if rc == False:
+                break
+
+            if rc == "wait":
+                LOGGER.info("Waiting for twitter rate limit to expire.")
+                time.sleep(get_twitter_rate_limt_expires(self.redis_client))
         self.db_worker.store_scraped_tweets()
 
+        # Entity Analysis
         self.db_worker.queue_entity_analysis_requests()
-        while self.entity_worker.process():
-            pass
+        while True:
+            rc = self.entity_worker.process()
+            if rc == False:
+                break
+
+            if rc == "wait":
+                LOGGER.info("Waiting for google rate limit to expire.")
+                time.sleep(get_google_rate_limit_expires(self.redis_client))
         self.db_worker.store_entity_analysis_results()
 
+        # Classify Worker
         self.db_worker.queue_classification_requests()
-        while self.classify_worker.process():
-            pass
+        while True:
+            rc = self.classify_worker.process()
+            if rc == False:
+                break
+
+            if rc == "wait":
+                LOGGER.info("Waiting for google rate limit to expire.")
+                time.sleep(get_google_rate_limit_expires(self.redis_client))
         self.db_worker.store_classification_results()
+        time.sleep(1)
+
 
 
     def run(self, single=True):
@@ -127,7 +152,7 @@ def main():
     parser = ArgumentParser()
     filename = Path(__file__).with_suffix(".log").name
     parser.add_argument("-f", "--log-file", default=filename, help="Log file to log to.")
-    parser.add_argument("-l", "--log-level", default="debug", help="Log file to log to.")
+    parser.add_argument("-l", "--log-level", default="info", help="Log file to log to.")
     subparsers = parser.add_subparsers()
     worker_parser = subparsers.add_parser("process")
     worker_parser.add_argument("-d", "--as-daemon", action="store_true", default=False)

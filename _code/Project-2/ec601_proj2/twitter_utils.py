@@ -50,7 +50,6 @@ class TwitterRateLimitError(TwitterError):
         self.reset_epoch_seconds = float(reset_time)
 
 
-
 class TweetCount:
 
     def __init__(self, query, **kwargs):
@@ -71,6 +70,7 @@ class TwitterUser: #pylint: disable=too-few-public-methods
         self.url = kwargs.get("url")
         self.description = kwargs.get("description")
         self.verified = kwargs.get("verified")
+        self.protected = kwargs.get("protected", False)
 
 
     def __hash__(self):
@@ -82,7 +82,7 @@ class TwitterUser: #pylint: disable=too-few-public-methods
 
 
     def to_dict(self):
-        fields = 'id', 'name', 'username', 'url', 'description', 'verified'
+        fields = 'id', 'name', 'username', 'url', 'description', 'verified', "protected"
         return {f: getattr(self, f) for f in fields}
 
     @classmethod
@@ -133,8 +133,12 @@ class ResponseMetadata:
     oldest_id: str
 
     def __init__(self, **kwargs):
-        for arg, value in kwargs.items():
-            setattr(self, arg, value)
+        self.next_token = kwargs.get("next_token")
+        self.previous_token = kwargs.get("previous_token")
+        self.result_count = kwargs.get("result_count")
+        self.newest_id = kwargs.get("newest_id")
+        self.oldest_id = kwargs.get("oldest_id")
+
 
 
 def _add_payload_dates(payload, start_date, end_date):
@@ -244,14 +248,20 @@ def _check_response(response):
         else:
             raise TwitterRequestError(status_code=response.status_code,
                                       msg=response.text)
+    else:
+        data = response.json()
+        if 'errors' in data:
+            raise TwitterRequestError(status_code=response.status_code, msg=response.text)
 
     return response
 
 
 def _user_list_result(endpoint, pagination) -> Tuple[ResponseMetadata, list[TwitterUser]]:
     params = {
-        "user.fields": "verified,description"
+        "user.fields": "verified,description,protected",
     }
+    if pagination:
+        params["pagination_token"] = pagination
 
     response = _check_response(V2_API.request(endpoint, params=params))
 
@@ -273,8 +283,18 @@ def _tweets_list_result(endpoint, limit):
     }
     response = _check_response(V2_API.request(endpoint, params=params))
     json = response.json()
-    metadata = ResponseMetadata(**json['meta'])
-    return metadata, [Tweet(**tweet) for tweet in json['data']]
+    if 'meta' not in json:
+        print("???")
+    # 'meta' can be missing if we are not authorized to grab a user's tweets.
+    metadata = ResponseMetadata(**json.get('meta', {"result_count": 0}))
+
+    if metadata.result_count == 0:
+        tweets = []
+    else:
+        if 'data' not in json:
+            print("???")
+        tweets = [Tweet(**tweet) for tweet in json['data']]
+    return metadata, tweets
 
 
 def get_user_by_username(username) -> TwitterUser:
@@ -323,5 +343,6 @@ def iterate_following(user_id: str):
         for user in users:
             yield user
 
-        if not meta.next_token:
+        page = meta.next_token
+        if not page:
             return

@@ -15,8 +15,8 @@ from ec601_proj2 import (
 )
 
 from ec601_proj2.workers import (
-    set_twitter_rate_limit_time,
-    twitter_rate_limit_time
+    set_twitter_rate_limit_expires,
+    get_twitter_rate_limt_expires
 )
 
 load_dotenv()
@@ -57,8 +57,29 @@ class DiscoverUsers:
             raise RuntimeError(msg) from err
 
 
+    def wait_for_rate_limit(self, sleep_wait=False):
+        while True:
+            wait_time = get_twitter_rate_limt_expires(self.redis_client)
+
+            if wait_time <= 0:
+                break
+
+            minutes = wait_time//60
+            seconds = wait_time - minutes*60
+            wait_string = []
+            if minutes:
+                wait_string.append("%d minutes and" % minutes)
+
+            wait_string.append("%d seconds" % int(seconds))
+            LOGGER.info("Rate limit expires in: %s, wait until then.", " ".join(wait_string))
+            if sleep_wait:
+                time.sleep(wait_time)
+            else:
+                break
+
+
     def scrape_user_following(self, user: models.User):
-        if twitter_rate_limit_time(self.redis_client) > 0:
+        if get_twitter_rate_limt_expires(self.redis_client) > 0:
             LOGGER.info("Not sraping user because twitter rate limit has not expired.")
             return
 
@@ -76,21 +97,16 @@ class DiscoverUsers:
             user.scraped_following = True
             user.save()
         except twitter_utils.TwitterRateLimitError as err:
-            set_twitter_rate_limit_time(self.redis_client, err.reset_epoch_seconds)
+            set_twitter_rate_limit_expires(self.redis_client, err.reset_epoch_seconds)
 
 
     def _run_forever(self):
         while True:
-            self._run_single()
+            self._run_single(wait_if_limited=True)
 
 
-    def _run_single(self):
-        wait_time = twitter_rate_limit_time(self.redis_client)
-
-        if wait_time > 0:
-            LOGGER.info("Sleeping for %s seconds until twitter rate limit expires.", wait_time)
-            time.sleep(wait_time + 5)
-            return
+    def _run_single(self, wait_if_limited=False):
+        self.wait_for_rate_limit(wait_if_limited)
 
         to_scrape_following = list(models.User.select().where(models.User.scraped_following == False).limit(1))
         if to_scrape_following:
@@ -98,9 +114,9 @@ class DiscoverUsers:
             self.scrape_user_following(to_scrape_following[0])
 
 
-    def run(self, single=True):
+    def run(self, single=True, wait=False):
         if single:
-            self._run_single()
+            self._run_single(wait_if_limited=wait)
         else:
             self._run_forever()
 
@@ -111,8 +127,12 @@ def main():
     parser = ArgumentParser()
     filename = Path(__file__).with_suffix(".log").name
     parser.add_argument("-f", "--log-file", default=filename, help="Log file to log to.")
-    parser.add_argument("-l", "--log-level", default="debug", help="Log file to log to.")
+    parser.add_argument("-l", "--log-level", default="debug", help="Log level")
     parser.add_argument("-d", "--as-daemon", action="store_true", default=False)
+    parser.add_argument("-w", "--wait",
+                        action="store_true",
+                        default=False,
+                        help="Wait for sleep if rate limited. Always true when running as daemon")
 
     args = parser.parse_args()
 
@@ -133,7 +153,7 @@ def main():
     database = models.init_db(DB_FILE)
 
     app = DiscoverUsers(redis_client, database)
-    app.run(single=not args.as_daemon)
+    app.run(single=not args.as_daemon, wait=args.wait)
 
 if __name__ == "__main__":
     main()
