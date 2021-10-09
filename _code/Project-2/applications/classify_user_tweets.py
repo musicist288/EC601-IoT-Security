@@ -97,8 +97,9 @@ class ClassifyUsers:
                 break
 
             if rc == "wait":
-                LOGGER.info("Waiting for google rate limit to expire.")
-                time.sleep(get_google_rate_limit_expires(self.redis_client))
+                tts = get_google_rate_limit_expires(self.redis_client)
+                LOGGER.info("Waiting for google rate limit to expire: %s", tts)
+                time.sleep(tts)
         self.db_worker.store_entity_analysis_results()
 
         # Classify Worker
@@ -109,8 +110,9 @@ class ClassifyUsers:
                 break
 
             if rc == "wait":
-                LOGGER.info("Waiting for google rate limit to expire.")
-                time.sleep(get_google_rate_limit_expires(self.redis_client))
+                tts = get_google_rate_limit_expires(self.redis_client)
+                LOGGER.info("Waiting for google rate limit to expire: %s", tts)
+                time.sleep(tts)
         self.db_worker.store_classification_results()
         time.sleep(1)
 

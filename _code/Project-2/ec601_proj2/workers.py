@@ -461,7 +461,7 @@ class ClassificationWorker(RedisWorker):
             LOGGER.warning("Hit google rate limit when classifying tweets.")
             self._client.lpush(Queues.CLASSIFICATION_REQUESTS, req)
             set_google_rate_limit_expires(self._client, time.time() + 60*15)
-            return False
+            return "wait"
 
 
         self._client.rpush(Queues.CLASSIFICATION_RESULTS, cr.to_json())
