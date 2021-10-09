@@ -395,7 +395,7 @@ class EntityAnalysisWorker(RedisWorker):
         except google_nlp.ResourceExhausted as err:
             LOGGER.warning("Hit google rate limit when analyzing tweets.")
             set_google_rate_limit_expires(self._client, time.time() + 60*15)
-            return "wait"
+            return False
 
 
     def analyze_queue(self):
