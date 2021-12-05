@@ -14,6 +14,6 @@ var store = [{
         "title": "IoT Enabled Domestic Violence",
         "excerpt":"For the past five years of my career building IoT products and services, I have experienced firsthand the growing demand for building private and secure products. Early on, product definitions were scarce in security and privacy requirements. If any such requirements were specified, their focus was on protecting intellectual property,...","categories": [],
         "tags": [],
-        "url": "/EC601-IoT-Security/2021/11/20/iot-societal-impact.html",
+        "url": "/EC601-IoT-Security/2021/12/05/iot-societal-impact.html",
         "teaser": null
       }]
