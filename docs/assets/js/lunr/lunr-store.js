@@ -10,4 +10,10 @@ var store = [{
         "tags": [],
         "url": "/EC601-IoT-Security/2021/10/08/twitter-classifications.html",
         "teaser": null
+      },{
+        "title": "Domestic Violence in the IoT Age",
+        "excerpt":"For the past five years of my career building IoT products and services, I have experienced firsthand the growing demand for building private and secure products. Early on, product definitions were scarce in security and privacy requirements. If any such requirements were specified, their focus was on protecting intellectual property,...","categories": [],
+        "tags": [],
+        "url": "/EC601-IoT-Security/2021/11/20/iot-societal-impact.html",
+        "teaser": null
       }]
