@@ -1,7 +1,7 @@
 ---
 layout: single
 slug: iot-societal-impact
-title:  "Domestic Violence in the IoT Age"
+title:  "IoT Enabled Domestic Violence"
 author: Joseph Rossi
 date:   2021-11-20 11:30:00 -0400
 excerpt: ""
