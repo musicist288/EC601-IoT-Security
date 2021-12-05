@@ -69,8 +69,9 @@ scholar:
   group_by: none
   group_order: ascending
 
+  # Note, bibliography key is not here
+  # define it in the post config
   source: ./_bibliography
-  bibliography: IoT_Security.bib
   bibliography_template: ""
 
   replace_strings: true

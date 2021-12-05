@@ -6,6 +6,8 @@ author: Joseph Rossi
 date:   2021-09-19 12:00:00 -0400
 excerpt: ""
 show_date: True
+scholar:
+    bibliography: IoT_Security
 ---
 
 ## The rise of IoT
@@ -42,7 +44,7 @@ IoT security is an important and thriving area of research. As more and more ind
 
 ## Citations
 
-{% bibliography %}
+{% bibliography --cited %}
 
 [^insulin-pump-note]: This example in no way reflects that the referenced Tandem product poses any such risk. It's simply to illustrate the risk of insecure IoT medical products. According to the website, t:slim X2 Insulin Pump is being developed in accordance with FDA guidelines.
 
