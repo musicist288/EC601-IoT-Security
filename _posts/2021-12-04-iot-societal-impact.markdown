@@ -3,7 +3,7 @@ layout: single
 slug: iot-societal-impact
 title:  "IoT Enabled Domestic Violence"
 author: Joseph Rossi
-date:   2021-11-20 11:30:00 -0400
+date:   2021-12-05 11:00:00 -0500
 excerpt: ""
 show_date: True
 scholar:
